@@ -110,30 +110,35 @@ function renderGoals() {
 }
 
 function makeTrend(goal) {
-  const points = [{ date: "Baseline", value: goal.baselineValue }, ...goal.samples.map((s) => ({ date: s.date, value: s.value }))];
+  const points = goal.samples.map((sample) => ({
+    date: sample.date,
+    value: sample.value,
+    label: sample.note.match(/for (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/)?.slice(1).join(" to ") || sample.date,
+  }));
+  if (!points.length) {
+    return `<div class="trend-empty"><strong>Target ${escapeHtml(valueLabel(goal.targetValue, goal.targetUnit))}</strong><span>No samples recorded yet.</span></div>`;
+  }
   const values = points.map((p) => p.value).concat([goal.targetValue]);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const span = max - min || 1;
-  const w = 640;
-  const h = 210;
-  const pad = 34;
-  const x = (i) => pad + (i * (w - pad * 2)) / Math.max(1, points.length - 1);
-  const y = (value) => h - pad - ((value - min) * (h - pad * 2)) / span;
+  const w = Math.max(640, points.length * 112);
+  const h = 250;
+  const pad = { top: 36, right: 38, bottom: 58, left: 38 };
+  const x = (i) => pad.left + (i * (w - pad.left - pad.right)) / Math.max(1, points.length - 1);
+  const y = (value) => h - pad.bottom - ((value - min) * (h - pad.top - pad.bottom)) / span;
   const path = points.map((p, i) => `${i ? "L" : "M"} ${x(i)} ${y(p.value)}`).join(" ");
   const targetY = y(goal.targetValue);
   const dots = points
-    .map((p, i) => `<circle cx="${x(i)}" cy="${y(p.value)}" r="4"><title>${p.date}: ${valueLabel(p.value, goal.targetUnit)}</title></circle>`)
+    .map((p, i) => `<g><circle cx="${x(i)}" cy="${y(p.value)}" r="5"><title>${p.label}: ${valueLabel(p.value, goal.targetUnit)}</title></circle><text x="${x(i)}" y="${Math.max(17, y(p.value) - 11)}" text-anchor="middle" fill="#14312b" font-size="12" font-weight="700">${escapeHtml(valueLabel(p.value, goal.targetUnit))}</text><text x="${x(i)}" y="${h - 20}" text-anchor="middle" fill="#64605a" font-size="11">${escapeHtml(p.label)}</text></g>`)
     .join("");
   return `
-    <svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Trend for ${goal.title}">
+    <svg viewBox="0 0 ${w} ${h}" style="min-width:${w}px" role="img" aria-label="Samples and target for ${goal.title}">
       <rect width="${w}" height="${h}" fill="#fffdf8"></rect>
-      <line x1="${pad}" x2="${w - pad}" y1="${targetY}" y2="${targetY}" stroke="#a86900" stroke-dasharray="6 6"></line>
-      <text x="${w - pad}" y="${Math.max(16, targetY - 8)}" text-anchor="end" fill="#a86900" font-size="12">target</text>
+      <line x1="${pad.left}" x2="${w - pad.right}" y1="${targetY}" y2="${targetY}" stroke="#a86900" stroke-dasharray="6 6"></line>
+      <text x="${w - pad.right}" y="${Math.max(18, targetY - 9)}" text-anchor="end" fill="#a86900" font-size="12" font-weight="700">Target ${escapeHtml(valueLabel(goal.targetValue, goal.targetUnit))}</text>
       <path d="${path}" fill="none" stroke="#276ef1" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
       <g fill="#14312b">${dots}</g>
-      <text x="${pad}" y="${h - 10}" fill="#64605a" font-size="12">${points[0]?.date || ""}</text>
-      <text x="${w - pad}" y="${h - 10}" text-anchor="end" fill="#64605a" font-size="12">${points.at(-1)?.date || ""}</text>
     </svg>`;
 }
 
