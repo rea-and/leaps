@@ -6,6 +6,8 @@ let state = {
   whoop: null,
   goodreads: null,
   logs: [],
+  editingSampleId: null,
+  sampleMessage: "",
   settingsOpen: false,
 };
 
@@ -167,17 +169,46 @@ function renderDetail() {
     </form>
     <h2>Plan</h2>
     <ul class="plan-list">${goal.plan.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+    <p class="sample-message" role="status">${escapeHtml(state.sampleMessage)}</p>
     <h2>Recent Samples</h2>
     <ul class="sample-list">${
       goal.samples
         .slice()
         .reverse()
         .slice(0, 8)
-        .map((s) => `<li>${escapeHtml(s.date)}: ${escapeHtml(valueLabel(s.value, goal.targetUnit))} - ${escapeHtml(s.source)}${s.note ? ` - ${escapeHtml(s.note)}` : ""}</li>`)
+        .map((s) => s.id === state.editingSampleId ? `
+          <li class="sample-row sample-row-editing">
+            <form class="sample-edit-form" data-sample-id="${escapeHtml(s.id)}">
+              <input name="date" type="date" value="${escapeHtml(s.date)}" required aria-label="Sample date">
+              <input name="value" type="number" step="0.01" value="${escapeHtml(s.value)}" required aria-label="Sample value">
+              <input name="note" type="text" value="${escapeHtml(s.note)}" placeholder="Optional context" aria-label="Sample note">
+              <button type="submit" class="sample-action">Save</button>
+              <button type="button" class="sample-action" data-cancel-edit>Cancel</button>
+            </form>
+          </li>` : `
+          <li class="sample-row">
+            <div class="sample-copy">${escapeHtml(s.date)}: ${escapeHtml(valueLabel(s.value, goal.targetUnit))} - ${escapeHtml(s.source)}${s.note ? ` - ${escapeHtml(s.note)}` : ""}</div>
+            <div class="sample-actions">
+              <button type="button" class="sample-action" data-edit-sample="${escapeHtml(s.id)}">Edit</button>
+              <button type="button" class="sample-action sample-delete" data-delete-sample="${escapeHtml(s.id)}">Delete</button>
+            </div>
+          </li>`)
         .join("") || "<li>No samples yet.</li>"
     }</ul>
   `;
   document.querySelector("#sampleForm").addEventListener("submit", saveSample);
+  detail.querySelectorAll("[data-edit-sample]").forEach((button) => button.addEventListener("click", () => {
+    state.editingSampleId = button.dataset.editSample;
+    state.sampleMessage = "";
+    renderDetail();
+  }));
+  detail.querySelectorAll("[data-cancel-edit]").forEach((button) => button.addEventListener("click", () => {
+    state.editingSampleId = null;
+    state.sampleMessage = "";
+    renderDetail();
+  }));
+  detail.querySelectorAll(".sample-edit-form").forEach((form) => form.addEventListener("submit", saveSampleEdit));
+  detail.querySelectorAll("[data-delete-sample]").forEach((button) => button.addEventListener("click", () => deleteSavedSample(button.dataset.deleteSample)));
 }
 
 function renderWhoop() {
@@ -325,17 +356,56 @@ async function syncWhoop() {
 async function saveSample(event) {
   event.preventDefault();
   const goal = state.goals.find((g) => g.id === state.selectedId);
-  await api("/api/samples", {
-    method: "POST",
-    body: JSON.stringify({
-      goalId: goal.id,
-      date: document.querySelector("#sampleDate").value,
-      value: document.querySelector("#sampleValue").value,
-      note: document.querySelector("#sampleNote").value,
-      source: "manual",
-    }),
-  });
-  await load();
+  try {
+    const result = await api("/api/samples", {
+      method: "POST",
+      body: JSON.stringify({
+        goalId: goal.id,
+        date: document.querySelector("#sampleDate").value,
+        value: document.querySelector("#sampleValue").value,
+        note: document.querySelector("#sampleNote").value,
+        source: "manual",
+      }),
+    });
+    state.goals = result.goals;
+    state.sampleMessage = "Progress sample saved.";
+    render();
+  } catch (error) {
+    state.sampleMessage = error.message;
+    renderDetail();
+  }
+}
+
+async function saveSampleEdit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  try {
+    const result = await api(`/api/samples/${form.dataset.sampleId}`, {
+      method: "PUT",
+      body: JSON.stringify({ date: form.elements.date.value, value: form.elements.value.value, note: form.elements.note.value }),
+    });
+    state.goals = result.goals;
+    state.editingSampleId = null;
+    state.sampleMessage = "Progress sample updated.";
+    render();
+  } catch (error) {
+    state.sampleMessage = error.message;
+    renderDetail();
+  }
+}
+
+async function deleteSavedSample(sampleId) {
+  if (!window.confirm("Delete this saved progress sample?")) return;
+  try {
+    const result = await api(`/api/samples/${sampleId}`, { method: "DELETE" });
+    state.goals = result.goals;
+    state.editingSampleId = null;
+    state.sampleMessage = "Progress sample deleted.";
+    render();
+  } catch (error) {
+    state.sampleMessage = error.message;
+    renderDetail();
+  }
 }
 
 function render() {

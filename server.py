@@ -597,6 +597,28 @@ def insert_sample(goal_id, sample_date, value, note="", source="manual", metadat
     return sample["id"]
 
 
+def update_sample(sample_id, sample_date, value, note=""):
+    with db() as con:
+        existing = con.execute("SELECT * FROM samples WHERE id = ?", (sample_id,)).fetchone()
+        if not existing:
+            raise ValueError("Sample not found")
+        con.execute(
+            "UPDATE samples SET sample_date = ?, value = ?, note = ? WHERE id = ?",
+            (require_date(sample_date), clean_float(value), str(note or ""), sample_id),
+        )
+        updated = con.execute("SELECT * FROM samples WHERE id = ?", (sample_id,)).fetchone()
+    return row_sample(updated)
+
+
+def delete_sample(sample_id):
+    with db() as con:
+        existing = con.execute("SELECT * FROM samples WHERE id = ?", (sample_id,)).fetchone()
+        if not existing:
+            raise ValueError("Sample not found")
+        con.execute("DELETE FROM samples WHERE id = ?", (sample_id,))
+    return row_sample(existing)
+
+
 def connection_status():
     with db() as con:
         row = con.execute("SELECT * FROM connections WHERE provider = 'whoop'").fetchone()
@@ -1173,6 +1195,39 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             source = "WHOOP" if path.startswith("/api/whoop/") else "Goodreads" if path.startswith("/api/goodreads/") else "Tracker"
             log_event("error", source, "Request failed", {"path": path, "error": str(exc)})
+            return self.send_error_json(str(exc), 400)
+
+    def do_PUT(self):
+        parsed = urlparse(self.path)
+        path = unmounted_path(parsed.path)
+        try:
+            if not path or not path.startswith("/api/samples/"):
+                return self.send_error_json("Not found", 404)
+            sample_id = path.removeprefix("/api/samples/")
+            if not sample_id or "/" in sample_id:
+                return self.send_error_json("Not found", 404)
+            body = parse_body(self)
+            sample = update_sample(sample_id, body.get("date"), body.get("value"), body.get("note", ""))
+            log_event("success", "Tracker", "Progress sample updated", {"goalId": sample["goalId"], "sampleId": sample_id, "date": sample["date"]})
+            return self.send_json({"ok": True, "goals": list_goals()})
+        except Exception as exc:
+            log_event("error", "Tracker", "Sample update failed", {"path": path or "", "error": str(exc)})
+            return self.send_error_json(str(exc), 400)
+
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        path = unmounted_path(parsed.path)
+        try:
+            if not path or not path.startswith("/api/samples/"):
+                return self.send_error_json("Not found", 404)
+            sample_id = path.removeprefix("/api/samples/")
+            if not sample_id or "/" in sample_id:
+                return self.send_error_json("Not found", 404)
+            sample = delete_sample(sample_id)
+            log_event("warning", "Tracker", "Progress sample deleted", {"goalId": sample["goalId"], "sampleId": sample_id, "date": sample["date"], "source": sample["source"]})
+            return self.send_json({"ok": True, "goals": list_goals()})
+        except Exception as exc:
+            log_event("error", "Tracker", "Sample deletion failed", {"path": path or "", "error": str(exc)})
             return self.send_error_json(str(exc), 400)
 
     def serve_static(self, path):
