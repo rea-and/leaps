@@ -43,6 +43,8 @@ def mounted_path(path="/"):
 
 def unmounted_path(path):
     if not BASE_PATH:
+        if path.startswith("/leaps/"):
+            return path[len("/leaps"):]
         return path
     if path == BASE_PATH:
         return "/"
