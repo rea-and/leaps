@@ -60,7 +60,7 @@
             <div class="connection-actions span-all">
               <button type="submit" class="secondary-button">Save settings</button>
               <a id="whoopConnectBtn" class="primary-link disabled" href="api/whoop/connect" aria-disabled="true">Connect WHOOP</a>
-              <button id="whoopSyncBtn" type="button" class="quiet-button" disabled>Sync last 30 days</button>
+              <button id="whoopSyncBtn" type="button" class="quiet-button" disabled>Sync WHOOP data</button>
             </div>
           </form>
           <p id="whoopMessage" class="status"></p>
@@ -98,6 +98,11 @@
         </div>
         <p class="activity-log-note">Recent syncs, saved progress, connection events, and errors are retained in the local SQLite database.</p>
         <div id="logsList" class="logs-list" aria-live="polite"></div>
+      </section>
+
+      <section class="data-maintenance settings-only" hidden>
+        <div><p class="eyebrow">Data Maintenance</p><h2>Reset progress samples</h2></div>
+        <div class="maintenance-action"><button id="resetSamplesBtn" class="danger-button" type="button">Reset all samples</button><p id="resetSamplesMessage" class="status"></p></div>
       </section>
 
     </main>

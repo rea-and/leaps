@@ -353,6 +353,19 @@ async function syncWhoop() {
   }
 }
 
+async function resetAllSamples() {
+  if (!window.confirm("Delete every saved progress sample across all targets? Connection settings and activity logs will remain.")) return;
+  const button = document.querySelector("#resetSamplesBtn");
+  const message = document.querySelector("#resetSamplesMessage");
+  button.disabled = true;
+  try {
+    const result = await api("/api/samples/reset", { method: "POST", body: "{}" });
+    state.goals = result.goals; state.selectedId = null; state.editingSampleId = null; state.sampleMessage = ""; render();
+    message.textContent = `${result.deleted} samples reset.`;
+    await loadLogs();
+  } catch (error) { message.textContent = error.message; } finally { button.disabled = false; }
+}
+
 async function saveSample(event) {
   event.preventDefault();
   const goal = state.goals.find((g) => g.id === state.selectedId);
@@ -435,6 +448,7 @@ document.querySelector("#whoopSyncBtn").addEventListener("click", syncWhoop);
 document.querySelector("#goodreadsForm").addEventListener("submit", saveGoodreads);
 document.querySelector("#goodreadsSyncBtn").addEventListener("click", syncGoodreads);
 document.querySelector("#refreshLogsBtn").addEventListener("click", loadLogs);
+document.querySelector("#resetSamplesBtn").addEventListener("click", resetAllSamples);
 document.querySelector("#settingsBtn").addEventListener("click", () => setSettingsMode(!state.settingsOpen));
 
 Promise.all([load(), loadWhoop(), loadGoodreads(), loadLogs()]).then(() => {

@@ -9,7 +9,7 @@ import secrets
 import sqlite3
 import sys
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -102,9 +102,9 @@ GOALS = [
         "plan": ["Go to gym 6 days/week"],
     },
     {
-        "id": "sleep_recovery",
+        "id": "weekly_sleep",
         "category": "Wellness",
-        "title": "Weekly average sleep + recovery performance >= 80%",
+        "title": "Weekly average sleep performance >= 80%",
         "target_value": 80,
         "target_unit": "%",
         "baseline_value": 65,
@@ -116,10 +116,9 @@ GOALS = [
         "plan": [
             "Go to sleep by 11pm",
             "Drink at least 2L water per night",
-            "Solve the AC problem with Angel",
-            "No alcohol",
         ],
     },
+    {"id":"weekly_recovery","category":"Wellness","title":"Weekly average recovery >= 80%","target_value":80,"target_unit":"%","baseline_value":65,"baseline_label":"About 65%","direction":"up","sample_type":"number","cadence":"weekly","source":"Whoop","plan":["Solve the AC problem with Angel","No alcohol"]},
     {
         "id": "supplements",
         "category": "Wellness",
@@ -428,11 +427,10 @@ def init_db():
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_samples_goal_external_key "
             "ON samples(goal_id, external_key) WHERE external_key IS NOT NULL"
         )
-        existing = con.execute("SELECT COUNT(*) AS n FROM goals").fetchone()["n"]
-        if existing:
-            return
         ts = now_iso()
         for goal in GOALS:
+            if con.execute("SELECT 1 FROM goals WHERE id = ?", (goal["id"],)).fetchone():
+                continue
             con.execute(
                 """
                 INSERT INTO goals (
@@ -458,6 +456,7 @@ def init_db():
                     ts,
                 ),
             )
+        con.execute("UPDATE goals SET archived = 1, updated_at = ? WHERE id = 'sleep_recovery'", (ts,))
 
 
 def row_goal(row):
@@ -617,6 +616,13 @@ def delete_sample(sample_id):
             raise ValueError("Sample not found")
         con.execute("DELETE FROM samples WHERE id = ?", (sample_id,))
     return row_sample(existing)
+
+
+def reset_all_samples():
+    with db() as con:
+        count = con.execute("SELECT COUNT(*) AS n FROM samples").fetchone()["n"]
+        con.execute("DELETE FROM samples")
+    return count
 
 
 def connection_status():
@@ -1013,16 +1019,23 @@ def sync_whoop(days=30):
             )
         if strain is not None:
             insert_sample("strain", cycle_date, strain, "WHOOP daily strain", "whoop", raw, f"whoop:{cycle_id}:strain")
-        if sleep_score is not None or recovery_score is not None:
-            readiness = sum(v for v in (sleep_score, recovery_score) if v is not None) / sum(v is not None for v in (sleep_score, recovery_score))
-            insert_sample("sleep_recovery", cycle_date, readiness, "WHOOP sleep/recovery average", "whoop", raw, f"whoop:{cycle_id}:readiness")
         synced += 1
-    detail = f"Synced {synced} scored WHOOP cycles and {body_samples} body measurement samples from the last {days} days."
+    week_end = date.today() - timedelta(days=date.today().weekday() + 1)
+    week_start = week_end - timedelta(days=6)
+    with db() as con:
+        weekly = con.execute("SELECT AVG(sleep_performance) AS sleep, AVG(recovery) AS recovery, COUNT(sleep_performance) AS sleep_records, COUNT(recovery) AS recovery_records FROM whoop_daily_metrics WHERE sample_date BETWEEN ? AND ?", (week_start.isoformat(), week_end.isoformat())).fetchone()
+    weekly_samples = 0
+    label = f"{week_start.isoformat()} to {week_end.isoformat()}"
+    for goal_id, field, records, name in (("weekly_sleep", "sleep", "sleep_records", "sleep"), ("weekly_recovery", "recovery", "recovery_records", "recovery")):
+        if weekly[field] is not None:
+            insert_sample(goal_id, week_end.isoformat(), weekly[field], f"WHOOP average {name} for {label}", "whoop", {"weekStart": week_start.isoformat(), "weekEnd": week_end.isoformat(), "records": weekly[records]}, f"whoop:{goal_id}:{week_end.isoformat()}")
+            weekly_samples += 1
+    detail = f"Synced {synced} scored WHOOP cycles and {body_samples} body measurement samples. Recorded {weekly_samples} weekly averages for {label}."
     if missing_records:
         detail += f" Skipped {missing_records} unavailable sleep or recovery records."
     with db() as con:
         con.execute("UPDATE connections SET last_sync_at = ?, last_sync_detail = ?, updated_at = ? WHERE provider = 'whoop'", (now_iso(), detail, now_iso()))
-    log_event("success", "WHOOP", "Sync completed", {"cycles": synced, "bodySamples": body_samples, "unavailableRecords": missing_records, "days": days})
+    log_event("success", "WHOOP", "Sync completed", {"cycles": synced, "bodySamples": body_samples, "weeklySamples": weekly_samples, "weekStart": week_start.isoformat(), "weekEnd": week_end.isoformat(), "unavailableRecords": missing_records, "days": days})
     return {"synced": synced, "days": days, "detail": detail, "connection": connection_status()}
 
 
@@ -1030,7 +1043,8 @@ IMPORT_ALIASES = {
     "weight": ["weight", "body weight", "whoop weight", "renpho weight"],
     "bmi": ["bmi"],
     "strain": ["strain", "strain days", "target strain days", "days strain target achieved"],
-    "sleep_recovery": ["sleep", "sleep performance", "recovery", "recovery performance", "sleep recovery"],
+    "weekly_sleep": ["sleep", "sleep performance", "weekly sleep"],
+    "weekly_recovery": ["recovery", "recovery performance", "weekly recovery"],
     "books": ["books", "book", "goodreads", "books read"],
     "ultralearn": ["ultralearn", "modules", "modules completed"],
     "medium": ["medium", "articles", "articles read"],
@@ -1163,6 +1177,10 @@ class Handler(BaseHTTPRequestHandler):
             if path is None:
                 return self.send_error_json("Not found", 404)
             body = parse_body(self)
+            if path == "/api/samples/reset":
+                count = reset_all_samples()
+                log_event("warning", "Tracker", "All progress samples reset", {"deletedSamples": count})
+                return self.send_json({"ok": True, "deleted": count, "goals": list_goals()})
             if path == "/api/samples":
                 goal_id = body.get("goalId")
                 sample_id = insert_sample(
