@@ -334,17 +334,6 @@ async function saveSample(event) {
   await load();
 }
 
-async function exportData() {
-  const data = await api("/api/export");
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `leaps-export-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 function render() {
   renderSummary();
   renderTabs();
@@ -367,7 +356,6 @@ document.querySelector("#search").addEventListener("input", (event) => {
   render();
 });
 document.querySelector("#refreshBtn").addEventListener("click", load);
-document.querySelector("#exportBtn").addEventListener("click", exportData);
 document.querySelector("#whoopForm").addEventListener("submit", saveWhoopSettings);
 document.querySelector("#whoopSyncBtn").addEventListener("click", syncWhoop);
 document.querySelector("#goodreadsForm").addEventListener("submit", saveGoodreads);
