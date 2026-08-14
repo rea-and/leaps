@@ -51,7 +51,7 @@ function filteredGoals() {
     const categoryOk = state.category === "All" || goal.category === state.category;
     const searchOk = !q || `${goal.title} ${goal.category} ${goal.source}`.toLowerCase().includes(q);
     return categoryOk && searchOk;
-  });
+  }).sort((a, b) => categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category));
 }
 
 function renderSummary() {
