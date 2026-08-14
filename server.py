@@ -366,6 +366,15 @@ CREATE TABLE IF NOT EXISTS goodreads_read_books (
   raw_xml TEXT NOT NULL,
   synced_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS activity_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  occurred_at TEXT NOT NULL,
+  level TEXT NOT NULL CHECK(level IN ('info', 'success', 'warning', 'error')),
+  source TEXT NOT NULL,
+  event TEXT NOT NULL,
+  detail_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_occurred_at ON activity_logs(occurred_at DESC);
 """
 
 
@@ -379,6 +388,34 @@ def db():
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
     return con
+
+
+def log_event(level, source, event, detail=None):
+    """Persist user-facing operational events without credentials or access tokens."""
+    with db() as con:
+        con.execute(
+            "INSERT INTO activity_logs (occurred_at, level, source, event, detail_json) VALUES (?, ?, ?, ?, ?)",
+            (now_iso(), level, source, event, json.dumps(detail or {})),
+        )
+        con.execute(
+            "DELETE FROM activity_logs WHERE id NOT IN (SELECT id FROM activity_logs ORDER BY id DESC LIMIT 500)"
+        )
+
+
+def list_logs(limit=100):
+    limit = max(1, min(int(limit), 500))
+    with db() as con:
+        rows = con.execute(
+            "SELECT occurred_at, level, source, event, detail_json FROM activity_logs ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    logs = []
+    for row in rows:
+        try:
+            detail = json.loads(row["detail_json"])
+        except json.JSONDecodeError:
+            detail = {}
+        logs.append({"at": row["occurred_at"], "level": row["level"], "source": row["source"], "event": row["event"], "detail": detail})
+    return logs
 
 
 def init_db():
@@ -591,6 +628,7 @@ def save_goodreads_settings(body):
     with db() as con:
         con.execute("""INSERT INTO connections (provider, client_id, client_secret, redirect_uri, created_at, updated_at)
           VALUES ('goodreads', ?, '', '', ?, ?) ON CONFLICT(provider) DO UPDATE SET client_id=excluded.client_id, updated_at=excluded.updated_at""", (feed_url, now_iso(), now_iso()))
+    log_event("success", "Goodreads", "Read-shelf RSS feed saved")
     return goodreads_status()
 
 
@@ -606,6 +644,7 @@ def sync_goodreads():
         row = con.execute("SELECT * FROM connections WHERE provider = 'goodreads'").fetchone()
     if not row or not row["client_id"]:
         raise ValueError("Save your Goodreads read-shelf RSS URL first")
+    log_event("info", "Goodreads", "Sync started")
     try:
         with urlopen(row["client_id"], timeout=30) as response:
             root = ElementTree.fromstring(response.read())
@@ -635,6 +674,7 @@ def sync_goodreads():
         detail = f"Synced {saved} books from Goodreads; {count} marked read this year."
         con.execute("UPDATE connections SET last_sync_at=?, last_sync_detail=?, updated_at=? WHERE provider='goodreads'", (now_iso(), detail, now_iso()))
     insert_sample("books", date.today().isoformat(), count, "Goodreads read shelf", "goodreads", {"feedUrl": row["client_id"]}, f"goodreads:{date.today().year}:books")
+    log_event("success", "Goodreads", "Sync completed", {"booksProcessed": saved, "readThisYear": count})
     return {"imported": saved, "count": count, "detail": detail, "connection": goodreads_status()}
 
 
@@ -798,6 +838,7 @@ def save_whoop_settings(body):
             """,
             (client_id, client_secret, redirect_uri, now_iso(), now_iso()),
         )
+    log_event("success", "WHOOP", "App settings saved", {"redirectUri": redirect_uri})
     return connection_status()
 
 
@@ -892,6 +933,7 @@ def complete_whoop_oauth(code, state):
 
 def sync_whoop(days=30):
     days = max(1, min(int(days), 365))
+    log_event("info", "WHOOP", "Sync started", {"days": days})
     token = whoop_access_token()
     measurements = whoop_request(f"{WHOOP_API}/user/measurement/body", token)
     weight = (measurements or {}).get("weight_kilogram")
@@ -958,6 +1000,7 @@ def sync_whoop(days=30):
         detail += f" Skipped {missing_records} unavailable sleep or recovery records."
     with db() as con:
         con.execute("UPDATE connections SET last_sync_at = ?, last_sync_detail = ?, updated_at = ? WHERE provider = 'whoop'", (now_iso(), detail, now_iso()))
+    log_event("success", "WHOOP", "Sync completed", {"cycles": synced, "bodySamples": body_samples, "unavailableRecords": missing_records, "days": days})
     return {"synced": synced, "days": days, "detail": detail, "connection": connection_status()}
 
 
@@ -1064,14 +1107,19 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"ok": True, "database": str(DB_PATH)})
         if path == "/api/export":
             return self.send_json({"exportedAt": now_iso(), "goals": list_goals()})
+        if path == "/api/logs":
+            params = parse_qs(parsed.query)
+            return self.send_json({"logs": list_logs(params.get("limit", [100])[0])})
         if path == "/api/whoop/settings":
             return self.send_json({"connection": connection_status(), "scopes": WHOOP_SCOPES.split()})
         if path == "/api/goodreads/settings":
             return self.send_json({"connection": goodreads_status()})
         if path == "/api/whoop/connect":
             try:
+                log_event("info", "WHOOP", "OAuth connection started")
                 return self.send_redirect(whoop_authorize_url())
             except Exception as exc:
+                log_event("error", "WHOOP", "OAuth connection could not start", {"error": str(exc)})
                 return self.send_error_json(str(exc), 400)
         if path == "/api/whoop/callback":
             try:
@@ -1079,8 +1127,10 @@ class Handler(BaseHTTPRequestHandler):
                 if params.get("error"):
                     raise ValueError(params.get("error_description", params["error"])[0])
                 complete_whoop_oauth(params.get("code", [""])[0], params.get("state", [""])[0])
+                log_event("success", "WHOOP", "OAuth connection completed")
                 return self.send_redirect(mounted_path("/?whoop=connected"))
             except Exception as exc:
+                log_event("error", "WHOOP", "OAuth connection failed", {"error": str(exc)})
                 return self.send_redirect(mounted_path("/?whoop=error&message=" + urlencode({"message": str(exc)})[8:]))
         return self.serve_static(path)
 
@@ -1092,13 +1142,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_error_json("Not found", 404)
             body = parse_body(self)
             if path == "/api/samples":
-                insert_sample(
-                    body.get("goalId"),
+                goal_id = body.get("goalId")
+                sample_id = insert_sample(
+                    goal_id,
                     body.get("date"),
                     body.get("value"),
                     body.get("note", ""),
                     body.get("source", "manual"),
                 )
+                log_event("success", "Tracker", "Progress sample saved", {"goalId": goal_id, "sampleId": sample_id, "date": body.get("date"), "source": body.get("source", "manual")})
                 return self.send_json({"ok": True, "goals": list_goals()}, 201)
             if path == "/api/import":
                 params = parse_qs(parsed.query)
@@ -1107,6 +1159,7 @@ class Handler(BaseHTTPRequestHandler):
                     body.get("raw") or body.get("data") or "",
                     body.get("goalId") or None,
                 )
+                log_event("success" if not result["failed"] else "warning", "Import", "Data import completed", {"imported": result["imported"], "failed": result["failed"], "source": body.get("source") or params.get("source", ["import"])[0]})
                 return self.send_json(result, 201)
             if path == "/api/whoop/settings":
                 return self.send_json({"connection": save_whoop_settings(body)})
@@ -1118,6 +1171,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(sync_goodreads())
             return self.send_error_json("Not found", 404)
         except Exception as exc:
+            source = "WHOOP" if path.startswith("/api/whoop/") else "Goodreads" if path.startswith("/api/goodreads/") else "Tracker"
+            log_event("error", source, "Request failed", {"path": path, "error": str(exc)})
             return self.send_error_json(str(exc), 400)
 
     def serve_static(self, path):

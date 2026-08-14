@@ -5,6 +5,7 @@ let state = {
   search: "",
   whoop: null,
   goodreads: null,
+  logs: [],
   settingsOpen: false,
 };
 
@@ -208,6 +209,30 @@ function renderGoodreads() {
     ? connection.lastSyncDetail : connection.configured ? "Feed saved. Ready to sync books." : "Add your public Goodreads read-shelf RSS URL.";
 }
 
+function logDetail(log) {
+  const detail = log.detail || {};
+  const entries = Object.entries(detail).filter(([, value]) => value !== "" && value != null);
+  if (!entries.length) return "";
+  return entries.map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : value}`).join(" · ");
+}
+
+function renderLogs() {
+  const list = document.querySelector("#logsList");
+  if (!state.logs.length) {
+    list.innerHTML = '<p class="log-empty">No server activity recorded yet.</p>';
+    return;
+  }
+  list.innerHTML = state.logs.map((log) => `
+    <article class="log-row">
+      <span class="log-level ${escapeHtml(log.level)}">${escapeHtml(log.level)}</span>
+      <div class="log-copy">
+        <div><strong>${escapeHtml(log.event)}</strong><span class="log-source">${escapeHtml(log.source)}</span></div>
+        ${logDetail(log) ? `<p>${escapeHtml(logDetail(log))}</p>` : ""}
+      </div>
+      <time datetime="${escapeHtml(log.at)}">${escapeHtml(new Date(log.at).toLocaleString())}</time>
+    </article>`).join("");
+}
+
 function setSettingsMode(open) {
   state.settingsOpen = open;
   document.querySelectorAll(".dashboard-only").forEach((node) => { node.hidden = open; });
@@ -223,6 +248,12 @@ async function loadWhoop() {
 async function loadGoodreads() {
   state.goodreads = await api("/api/goodreads/settings");
   renderGoodreads();
+}
+
+async function loadLogs() {
+  const data = await api("/api/logs?limit=150");
+  state.logs = data.logs;
+  renderLogs();
 }
 
 async function saveGoodreads(event) {
@@ -321,6 +352,7 @@ function render() {
   renderDetail();
   renderWhoop();
   renderGoodreads();
+  renderLogs();
 }
 
 async function load() {
@@ -340,9 +372,10 @@ document.querySelector("#whoopForm").addEventListener("submit", saveWhoopSetting
 document.querySelector("#whoopSyncBtn").addEventListener("click", syncWhoop);
 document.querySelector("#goodreadsForm").addEventListener("submit", saveGoodreads);
 document.querySelector("#goodreadsSyncBtn").addEventListener("click", syncGoodreads);
+document.querySelector("#refreshLogsBtn").addEventListener("click", loadLogs);
 document.querySelector("#settingsBtn").addEventListener("click", () => setSettingsMode(!state.settingsOpen));
 
-Promise.all([load(), loadWhoop(), loadGoodreads()]).then(() => {
+Promise.all([load(), loadWhoop(), loadGoodreads(), loadLogs()]).then(() => {
   const params = new URLSearchParams(location.search);
   if (params.get("whoop") === "connected") {
     document.querySelector("#whoopMessage").textContent = "WHOOP connected. Sync when you are ready.";

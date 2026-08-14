@@ -89,6 +89,18 @@
         </div>
       </section>
 
+      <section class="activity-log settings-only" id="activityLog" hidden aria-labelledby="activityLogTitle">
+        <div class="activity-log-head">
+          <div>
+            <p class="eyebrow">Server Activity</p>
+            <h2 id="activityLogTitle">Import and connection log</h2>
+          </div>
+          <button id="refreshLogsBtn" class="quiet-button" type="button">Refresh log</button>
+        </div>
+        <p class="activity-log-note">Recent syncs, saved progress, connection events, and errors are retained in the local SQLite database.</p>
+        <div id="logsList" class="logs-list" aria-live="polite"></div>
+      </section>
+
     </main>
 
     <template id="goalCardTemplate">
