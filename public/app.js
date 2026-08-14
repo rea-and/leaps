@@ -11,6 +11,7 @@ let state = {
 
 const fmt = new Intl.NumberFormat("en", { maximumFractionDigits: 1 });
 const basePath = new URL(document.baseURI).pathname.replace(/\/$/, "");
+const categoryOrder = ["Wellness", "Personal Growth", "Me & Angel", "Social Growth", "Personal Finances"];
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -36,7 +37,10 @@ function valueLabel(value, unit) {
 }
 
 function categories() {
-  return ["All", ...new Set(state.goals.map((g) => g.category))];
+  const available = new Set(state.goals.map((g) => g.category));
+  const ordered = categoryOrder.filter((category) => available.has(category));
+  const remaining = [...available].filter((category) => !categoryOrder.includes(category)).sort();
+  return ["All", ...ordered, ...remaining];
 }
 
 function filteredGoals() {
