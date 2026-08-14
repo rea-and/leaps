@@ -1,0 +1,9 @@
+# Persistent local data, including WHOOP OAuth tokens and personal samples.
+data/
+
+# Python bytecode.
+__pycache__/
+*.py[cod]
+
+# Local editor and operating-system files.
+.DS_Store

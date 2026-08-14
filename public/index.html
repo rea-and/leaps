@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Leaps - H2 2026 Progress</title>
+    <base href="__LEAPS_BASE_PATH__/">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-copy">
+        <p class="eyebrow">Andrea H2 2026</p>
+        <h1>SuperPlan Tracker</h1>
+        <p class="topbar-subtitle">A clear view of the habits and projects that matter this half.</p>
+      </div>
+      <div class="header-art" aria-hidden="true"></div>
+      <div class="top-actions">
+        <button id="exportBtn" class="quiet-button">Export</button>
+        <button id="refreshBtn" class="icon-button" title="Refresh dashboard" aria-label="Refresh dashboard">&#10227;</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="summary" id="summary"></section>
+
+      <section class="controls">
+        <div class="search-wrap">
+          <input id="search" type="search" placeholder="Search targets">
+        </div>
+        <div class="tabs" id="tabs"></div>
+      </section>
+
+      <section class="workspace">
+        <div class="goal-list" id="goals"></div>
+        <aside class="detail" id="detail"></aside>
+      </section>
+
+      <section class="whoop-settings" id="whoopSettings">
+        <div class="connection-intro">
+          <p class="eyebrow">Connected Data</p>
+          <h2>WHOOP integration</h2>
+          <p>Bring in sleep performance, recovery, and daily strain directly from your WHOOP account.</p>
+          <div class="connection-status" id="whoopStatus">Checking connection...</div>
+        </div>
+        <div class="connection-form-wrap">
+          <form id="whoopForm" class="connection-form">
+            <label>
+              WHOOP client ID
+              <input id="whoopClientId" type="text" autocomplete="off" required placeholder="Developer app client ID">
+            </label>
+            <label>
+              Client secret
+              <input id="whoopClientSecret" type="password" autocomplete="new-password" placeholder="Leave blank to keep saved secret">
+            </label>
+            <label class="span-all">
+              Redirect URL
+              <input id="whoopRedirectUri" type="url" required placeholder="https://tracker.example.com/api/whoop/callback">
+            </label>
+            <div class="connection-actions span-all">
+              <button type="submit" class="secondary-button">Save settings</button>
+              <a id="whoopConnectBtn" class="primary-link disabled" href="api/whoop/connect" aria-disabled="true">Connect WHOOP</a>
+              <button id="whoopSyncBtn" type="button" class="quiet-button" disabled>Sync last 30 days</button>
+            </div>
+          </form>
+          <p id="whoopMessage" class="status"></p>
+          <p class="connection-note">Create an app in the WHOOP Developer Dashboard and register this exact callback URL. Tokens and synced readings stay in this tracker&apos;s local SQLite database.</p>
+        </div>
+      </section>
+
+      <section class="imports">
+        <div>
+          <p class="eyebrow">Imports</p>
+          <h2>Paste CSV or JSON samples</h2>
+        </div>
+        <form id="importForm" class="import-grid">
+          <label>
+            Source
+            <select id="importSource">
+              <option value="whoop">Whoop / Renpho</option>
+              <option value="medium">Medium</option>
+              <option value="goodreads">Goodreads</option>
+              <option value="ultralearn">UltraLearn</option>
+              <option value="manual">Manual</option>
+            </select>
+          </label>
+          <label>
+            Force target
+            <select id="importGoal"></select>
+          </label>
+          <textarea id="importData" rows="8" spellcheck="false" placeholder="date,value,goal,note&#10;2026-08-14,85.2,weight,Renpho sync"></textarea>
+          <button type="submit">Import samples</button>
+        </form>
+        <p id="importStatus" class="status"></p>
+      </section>
+    </main>
+
+    <template id="goalCardTemplate">
+      <article class="goal-card">
+        <div class="goal-card-head">
+          <span class="category"></span>
+          <span class="source"></span>
+        </div>
+        <h3></h3>
+        <div class="metric-line">
+          <strong class="current"></strong>
+          <span class="target"></span>
+        </div>
+        <div class="bar"><span></span></div>
+      </article>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>
