@@ -1,5 +1,7 @@
 # Persistent local data, including WHOOP OAuth tokens and personal samples.
 data/
+adr/.gradle/
+adr/app/build/
 
 # Python bytecode.
 __pycache__/

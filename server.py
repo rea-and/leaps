@@ -625,6 +625,21 @@ def reset_all_samples():
     return count
 
 
+def quick_record(kind):
+    today = date.today()
+    if kind == "medium":
+        week_start = today - timedelta(days=today.weekday())
+        with db() as con:
+            current = con.execute("SELECT MAX(value) AS value FROM samples WHERE goal_id = 'medium' AND sample_date BETWEEN ? AND ?", (week_start.isoformat(), today.isoformat())).fetchone()["value"] or 0
+        value = current + 1
+        sample_id = insert_sample("medium", today.isoformat(), value, f"Android widget: Medium post read ({int(value)} this week)", "android_widget")
+        return {"goal": "medium", "value": value, "sampleId": sample_id}
+    if kind == "pills":
+        sample_id = insert_sample("supplements", today.isoformat(), 100, "Android widget: daily pills taken", "android_widget", external_key=f"android:pills:{today.isoformat()}")
+        return {"goal": "supplements", "value": 100, "sampleId": sample_id}
+    raise ValueError("Unknown quick record type")
+
+
 def connection_status():
     with db() as con:
         row = con.execute("SELECT * FROM connections WHERE provider = 'whoop'").fetchone()
@@ -1177,6 +1192,10 @@ class Handler(BaseHTTPRequestHandler):
             if path is None:
                 return self.send_error_json("Not found", 404)
             body = parse_body(self)
+            if path == "/api/quick-record":
+                result = quick_record(str(body.get("kind") or ""))
+                log_event("success", "Android widget", "Quick record saved", result)
+                return self.send_json({"ok": True, **result, "goals": list_goals()}, 201)
             if path == "/api/samples/reset":
                 count = reset_all_samples()
                 log_event("warning", "Tracker", "All progress samples reset", {"deletedSamples": count})
