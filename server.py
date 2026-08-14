@@ -802,7 +802,10 @@ def save_whoop_settings(body):
 
 
 def whoop_request(url, token=None, method="GET", data=None):
-    headers = {"Accept": "application/json"}
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Leaps/1.0 (+https://carlevato.net/leaps/)",
+    }
     if token:
         headers["Authorization"] = f"Bearer {token}"
     if data is not None:
