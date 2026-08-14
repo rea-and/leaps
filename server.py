@@ -801,6 +801,13 @@ def save_whoop_settings(body):
     return connection_status()
 
 
+class WhoopRequestError(ValueError):
+    def __init__(self, status, url, detail):
+        super().__init__(f"WHOOP request failed ({status}) for {url}: {detail}")
+        self.status = status
+        self.url = url
+
+
 def whoop_request(url, token=None, method="GET", data=None):
     headers = {
         "Accept": "application/json",
@@ -816,7 +823,7 @@ def whoop_request(url, token=None, method="GET", data=None):
             return json.loads(response.read().decode("utf-8") or "{}")
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")[:500]
-        raise ValueError(f"WHOOP request failed ({exc.code}): {detail}") from exc
+        raise WhoopRequestError(exc.code, url, detail) from exc
     except URLError as exc:
         raise ValueError(f"Could not reach WHOOP: {exc.reason}") from exc
 
@@ -908,13 +915,26 @@ def sync_whoop(days=30):
         next_token = page.get("next_token")
         url = WHOOP_API + "/cycle?" + urlencode({"limit": 25, "start": datetime.fromtimestamp(start, timezone.utc).isoformat(), "nextToken": next_token}) if next_token else None
     synced = 0
+    missing_records = 0
     for cycle in cycles:
         if cycle.get("score_state") != "SCORED" or not cycle.get("id"):
             continue
         cycle_id = str(cycle["id"])
         cycle_date = str(cycle.get("end") or cycle.get("start") or date.today().isoformat())[:10]
-        sleep = whoop_request(f"{WHOOP_API}/cycle/{cycle_id}/sleep", token)
-        recovery = whoop_request(f"{WHOOP_API}/cycle/{cycle_id}/recovery", token)
+        try:
+            sleep = whoop_request(f"{WHOOP_API}/cycle/{cycle_id}/sleep", token)
+        except WhoopRequestError as exc:
+            if exc.status != 404:
+                raise
+            sleep = {}
+            missing_records += 1
+        try:
+            recovery = whoop_request(f"{WHOOP_API}/cycle/{cycle_id}/recovery", token)
+        except WhoopRequestError as exc:
+            if exc.status != 404:
+                raise
+            recovery = {}
+            missing_records += 1
         strain = (cycle.get("score") or {}).get("strain")
         sleep_score = (sleep.get("score") or {}).get("sleep_performance_percentage")
         recovery_score = (recovery.get("score") or {}).get("recovery_score")
@@ -934,6 +954,8 @@ def sync_whoop(days=30):
             insert_sample("sleep_recovery", cycle_date, readiness, "WHOOP sleep/recovery average", "whoop", raw, f"whoop:{cycle_id}:readiness")
         synced += 1
     detail = f"Synced {synced} scored WHOOP cycles and {body_samples} body measurement samples from the last {days} days."
+    if missing_records:
+        detail += f" Skipped {missing_records} unavailable sleep or recovery records."
     with db() as con:
         con.execute("UPDATE connections SET last_sync_at = ?, last_sync_detail = ?, updated_at = ? WHERE provider = 'whoop'", (now_iso(), detail, now_iso()))
     return {"synced": synced, "days": days, "detail": detail, "connection": connection_status()}
