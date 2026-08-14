@@ -10,11 +10,13 @@ import sqlite3
 import sys
 import uuid
 from datetime import date, datetime, timezone
+from email.utils import parsedate_to_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
+from xml.etree import ElementTree
 
 
 ROOT = Path(__file__).resolve().parent
@@ -28,7 +30,11 @@ if BASE_PATH == "/":
 WHOOP_API = "https://api.prod.whoop.com/developer/v2"
 WHOOP_AUTHORIZE = "https://api.prod.whoop.com/oauth/oauth2/auth"
 WHOOP_TOKEN = "https://api.prod.whoop.com/oauth/oauth2/token"
-WHOOP_SCOPES = "offline read:cycles read:sleep read:recovery"
+WHOOP_SCOPES = "offline read:cycles read:sleep read:recovery read:body_measurement"
+GOOGLE_AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
+GOOGLE_FIT_API = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate"
+GOOGLE_FIT_SCOPE = "https://www.googleapis.com/auth/fitness.body.read"
 
 
 def mounted_path(path="/"):
@@ -346,6 +352,20 @@ CREATE TABLE IF NOT EXISTS whoop_daily_metrics (
   raw_json TEXT NOT NULL,
   synced_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS google_fit_daily_metrics (
+  sample_date TEXT PRIMARY KEY,
+  weight_kg REAL NOT NULL,
+  bmi REAL,
+  raw_json TEXT NOT NULL,
+  synced_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS goodreads_read_books (
+  book_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  read_date TEXT NOT NULL,
+  raw_xml TEXT NOT NULL,
+  synced_at TEXT NOT NULL
+);
 """
 
 
@@ -555,6 +575,206 @@ def connection_status():
     }
 
 
+def goodreads_status():
+    with db() as con:
+        row = con.execute("SELECT * FROM connections WHERE provider = 'goodreads'").fetchone()
+    if not row:
+        return {"configured": False, "lastSyncAt": "", "lastSyncDetail": ""}
+    return {"configured": bool(row["client_id"]), "feedUrl": row["client_id"], "lastSyncAt": row["last_sync_at"], "lastSyncDetail": row["last_sync_detail"]}
+
+
+def save_goodreads_settings(body):
+    feed_url = str(body.get("feedUrl") or "").strip()
+    parsed = urlparse(feed_url)
+    if parsed.scheme != "https" or parsed.netloc not in ("www.goodreads.com", "goodreads.com") or "/review/list_rss/" not in parsed.path:
+        raise ValueError("Use the HTTPS RSS URL for your Goodreads read shelf")
+    with db() as con:
+        con.execute("""INSERT INTO connections (provider, client_id, client_secret, redirect_uri, created_at, updated_at)
+          VALUES ('goodreads', ?, '', '', ?, ?) ON CONFLICT(provider) DO UPDATE SET client_id=excluded.client_id, updated_at=excluded.updated_at""", (feed_url, now_iso(), now_iso()))
+    return goodreads_status()
+
+
+def xml_text(element, name):
+    for child in element.iter():
+        if child.tag.rsplit("}", 1)[-1] == name and child.text:
+            return child.text.strip()
+    return ""
+
+
+def sync_goodreads():
+    with db() as con:
+        row = con.execute("SELECT * FROM connections WHERE provider = 'goodreads'").fetchone()
+    if not row or not row["client_id"]:
+        raise ValueError("Save your Goodreads read-shelf RSS URL first")
+    try:
+        with urlopen(row["client_id"], timeout=30) as response:
+            root = ElementTree.fromstring(response.read())
+    except Exception as exc:
+        raise ValueError(f"Could not read Goodreads RSS feed: {exc}") from exc
+    saved = 0
+    for item in root.iter():
+        if item.tag.rsplit("}", 1)[-1] != "item":
+            continue
+        book_id = xml_text(item, "id") or xml_text(item, "guid")
+        title = xml_text(item, "title") or "Untitled book"
+        read_at = xml_text(item, "user_read_at")
+        if not book_id or not read_at:
+            continue
+        try:
+            read_date = parsedate_to_datetime(read_at).date().isoformat()
+        except (TypeError, ValueError):
+            read_date = str(read_at)[:10]
+            datetime.strptime(read_date, "%Y-%m-%d")
+        with db() as con:
+            con.execute("""INSERT INTO goodreads_read_books (book_id, title, read_date, raw_xml, synced_at)
+              VALUES (?, ?, ?, ?, ?) ON CONFLICT(book_id) DO UPDATE SET title=excluded.title, read_date=excluded.read_date, raw_xml=excluded.raw_xml, synced_at=excluded.synced_at""", (book_id, title, read_date, ElementTree.tostring(item, encoding="unicode"), now_iso()))
+        saved += 1
+    year_start = f"{date.today().year}-01-01"
+    with db() as con:
+        count = con.execute("SELECT COUNT(*) AS n FROM goodreads_read_books WHERE read_date >= ?", (year_start,)).fetchone()["n"]
+        detail = f"Synced {saved} books from Goodreads; {count} marked read this year."
+        con.execute("UPDATE connections SET last_sync_at=?, last_sync_detail=?, updated_at=? WHERE provider='goodreads'", (now_iso(), detail, now_iso()))
+    insert_sample("books", date.today().isoformat(), count, "Goodreads read shelf", "goodreads", {"feedUrl": row["client_id"]}, f"goodreads:{date.today().year}:books")
+    return {"imported": saved, "count": count, "detail": detail, "connection": goodreads_status()}
+
+
+def google_fit_status():
+    with db() as con:
+        row = con.execute("SELECT * FROM connections WHERE provider = 'google_fit'").fetchone()
+    if not row:
+        return {"configured": False, "connected": False, "lastSyncAt": "", "lastSyncDetail": ""}
+    detail = json.loads(row["last_sync_detail"] or "{}") if row["last_sync_detail"].startswith("{") else {}
+    return {
+        "configured": bool(row["client_id"] and row["client_secret"] and row["redirect_uri"]),
+        "connected": bool(row["refresh_token"]), "clientId": row["client_id"], "redirectUri": row["redirect_uri"],
+        "heightCm": detail.get("heightCm", ""), "lastSyncAt": row["last_sync_at"],
+        "lastSyncDetail": detail.get("message", row["last_sync_detail"]),
+    }
+
+
+def save_google_fit_settings(body):
+    client_id = str(body.get("clientId") or "").strip()
+    client_secret = str(body.get("clientSecret") or "").strip()
+    redirect_uri = str(body.get("redirectUri") or "").strip()
+    height_cm = clean_float(body.get("heightCm"))
+    with db() as con:
+        current = con.execute("SELECT * FROM connections WHERE provider = 'google_fit'").fetchone()
+    if not client_id or not client_secret or not redirect_uri:
+        if not client_id or not redirect_uri or not current:
+            raise ValueError("Google client ID, client secret, redirect URL, and height are required")
+    if not 100 <= height_cm <= 250:
+        raise ValueError("Height must be between 100 and 250 cm")
+    parsed = urlparse(redirect_uri)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise ValueError("Google redirect URL must be an absolute HTTPS URL")
+    with db() as con:
+        existing_secret = current["client_secret"] if current else ""
+        con.execute(
+            """INSERT INTO connections (provider, client_id, client_secret, redirect_uri, last_sync_detail, created_at, updated_at)
+            VALUES ('google_fit', ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(provider) DO UPDATE SET client_id=excluded.client_id, client_secret=excluded.client_secret,
+            redirect_uri=excluded.redirect_uri, last_sync_detail=excluded.last_sync_detail, updated_at=excluded.updated_at""",
+            (client_id, client_secret or existing_secret, redirect_uri, json.dumps({"heightCm": height_cm}), now_iso(), now_iso()),
+        )
+    return google_fit_status()
+
+
+def google_fit_row():
+    with db() as con:
+        row = con.execute("SELECT * FROM connections WHERE provider = 'google_fit'").fetchone()
+    if not row or not row["client_id"] or not row["client_secret"] or not row["redirect_uri"]:
+        raise ValueError("Save Google Fit settings first")
+    return row
+
+
+def google_http(url, token=None, data=None):
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    encoded = None
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+        encoded = json.dumps(data).encode("utf-8")
+    try:
+        with urlopen(Request(url, data=encoded, headers=headers, method="POST" if data is not None else "GET"), timeout=30) as response:
+            return json.loads(response.read().decode("utf-8") or "{}")
+    except HTTPError as exc:
+        raise ValueError(f"Google Fit request failed ({exc.code}): {exc.read().decode('utf-8', 'replace')[:500]}") from exc
+
+
+def google_token(data):
+    encoded = urlencode(data).encode("utf-8")
+    try:
+        with urlopen(Request(GOOGLE_TOKEN, data=encoded, headers={"Content-Type": "application/x-www-form-urlencoded"}), timeout=30) as response:
+            return json.loads(response.read().decode("utf-8") or "{}")
+    except HTTPError as exc:
+        raise ValueError(f"Google authorization failed ({exc.code}): {exc.read().decode('utf-8', 'replace')[:500]}") from exc
+
+
+def persist_google_tokens(tokens):
+    expires_at = datetime.fromtimestamp(datetime.now(timezone.utc).timestamp() + int(tokens.get("expires_in", 3600)) - 60, timezone.utc).isoformat()
+    with db() as con:
+        current = con.execute("SELECT refresh_token FROM connections WHERE provider = 'google_fit'").fetchone()
+        con.execute("UPDATE connections SET access_token=?, refresh_token=?, token_expires_at=?, state='', updated_at=? WHERE provider='google_fit'",
+                    (tokens.get("access_token", ""), tokens.get("refresh_token") or current["refresh_token"], expires_at, now_iso()))
+
+
+def google_fit_authorize_url():
+    row = google_fit_row()
+    state = secrets.token_urlsafe(24)
+    with db() as con:
+        con.execute("UPDATE connections SET state=?, updated_at=? WHERE provider='google_fit'", (state, now_iso()))
+    return GOOGLE_AUTHORIZE + "?" + urlencode({"client_id": row["client_id"], "redirect_uri": row["redirect_uri"], "response_type": "code", "scope": GOOGLE_FIT_SCOPE, "access_type": "offline", "prompt": "consent", "state": state})
+
+
+def complete_google_fit_oauth(code, state):
+    row = google_fit_row()
+    if not state or not secrets.compare_digest(state, row["state"]):
+        raise ValueError("Invalid Google authorization state. Start the connection again.")
+    persist_google_tokens(google_token({"code": code, "client_id": row["client_id"], "client_secret": row["client_secret"], "redirect_uri": row["redirect_uri"], "grant_type": "authorization_code"}))
+
+
+def google_fit_access_token():
+    row = google_fit_row()
+    if row["access_token"] and row["token_expires_at"] and datetime.fromisoformat(row["token_expires_at"]) > datetime.now(timezone.utc):
+        return row["access_token"]
+    if not row["refresh_token"]:
+        raise ValueError("Connect your Google Fit account first")
+    persist_google_tokens(google_token({"refresh_token": row["refresh_token"], "client_id": row["client_id"], "client_secret": row["client_secret"], "grant_type": "refresh_token"}))
+    with db() as con:
+        return con.execute("SELECT access_token FROM connections WHERE provider='google_fit'").fetchone()["access_token"]
+
+
+def sync_google_fit(days=90):
+    days = max(1, min(int(days), 365))
+    row = google_fit_row()
+    detail = json.loads(row["last_sync_detail"] or "{}")
+    height_m = clean_float(detail.get("heightCm")) / 100
+    end_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    start_ms = end_ms - days * 86400000
+    response = google_http(GOOGLE_FIT_API, google_fit_access_token(), {"startTimeMillis": start_ms, "endTimeMillis": end_ms, "aggregateBy": [{"dataTypeName": "com.google.weight"}], "bucketByTime": {"durationMillis": 86400000}})
+    imported = 0
+    for bucket in response.get("bucket", []):
+        points = [point for dataset in bucket.get("dataset", []) for point in dataset.get("point", [])]
+        values = [point.get("value", [{}])[0].get("fpVal") for point in points if point.get("value")]
+        values = [value for value in values if value is not None]
+        if not values:
+            continue
+        sample_date = datetime.fromtimestamp(int(bucket["startTimeMillis"]) / 1000, timezone.utc).date().isoformat()
+        weight = values[-1]
+        bmi = weight / (height_m * height_m)
+        raw = {"bucket": bucket, "source": "Google Fit"}
+        with db() as con:
+            con.execute("INSERT INTO google_fit_daily_metrics (sample_date, weight_kg, bmi, raw_json, synced_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(sample_date) DO UPDATE SET weight_kg=excluded.weight_kg, bmi=excluded.bmi, raw_json=excluded.raw_json, synced_at=excluded.synced_at", (sample_date, weight, bmi, json.dumps(raw), now_iso()))
+        insert_sample("weight", sample_date, weight, "Google Fit / Renpho weight", "google_fit", raw, f"google_fit:{sample_date}:weight")
+        insert_sample("bmi", sample_date, bmi, "Calculated from Google Fit weight", "google_fit", raw, f"google_fit:{sample_date}:bmi")
+        imported += 1
+    message = f"Synced {imported} daily weight and BMI samples from Google Fit."
+    with db() as con:
+        con.execute("UPDATE connections SET last_sync_at=?, last_sync_detail=?, updated_at=? WHERE provider='google_fit'", (now_iso(), json.dumps({"heightCm": height_m * 100, "message": message}), now_iso()))
+    return {"imported": imported, "detail": message, "connection": google_fit_status()}
+
+
 def save_whoop_settings(body):
     client_id = str(body.get("clientId") or "").strip()
     client_secret = str(body.get("clientSecret") or "").strip()
@@ -663,6 +883,19 @@ def complete_whoop_oauth(code, state):
 def sync_whoop(days=30):
     days = max(1, min(int(days), 365))
     token = whoop_access_token()
+    measurements = whoop_request(f"{WHOOP_API}/user/measurement/body", token)
+    weight = (measurements or {}).get("weight_kilogram")
+    height = (measurements or {}).get("height_meter")
+    body_samples = 0
+    if weight is not None:
+        sample_date = date.today().isoformat()
+        raw = {"bodyMeasurements": measurements}
+        insert_sample("weight", sample_date, weight, "WHOOP body measurement", "whoop", raw, f"whoop:body:{sample_date}:weight")
+        body_samples += 1
+        if height:
+            bmi = float(weight) / (float(height) * float(height))
+            insert_sample("bmi", sample_date, bmi, "Calculated from WHOOP weight and height", "whoop", raw, f"whoop:body:{sample_date}:bmi")
+            body_samples += 1
     start = datetime.now(timezone.utc).timestamp() - days * 86400
     url = WHOOP_API + "/cycle?" + urlencode({"limit": 25, "start": datetime.fromtimestamp(start, timezone.utc).isoformat()})
     cycles = []
@@ -697,7 +930,7 @@ def sync_whoop(days=30):
             readiness = sum(v for v in (sleep_score, recovery_score) if v is not None) / sum(v is not None for v in (sleep_score, recovery_score))
             insert_sample("sleep_recovery", cycle_date, readiness, "WHOOP sleep/recovery average", "whoop", raw, f"whoop:{cycle_id}:readiness")
         synced += 1
-    detail = f"Synced {synced} scored WHOOP cycles from the last {days} days."
+    detail = f"Synced {synced} scored WHOOP cycles and {body_samples} body measurement samples from the last {days} days."
     with db() as con:
         con.execute("UPDATE connections SET last_sync_at = ?, last_sync_detail = ?, updated_at = ? WHERE provider = 'whoop'", (now_iso(), detail, now_iso()))
     return {"synced": synced, "days": days, "detail": detail, "connection": connection_status()}
@@ -808,6 +1041,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"exportedAt": now_iso(), "goals": list_goals()})
         if path == "/api/whoop/settings":
             return self.send_json({"connection": connection_status(), "scopes": WHOOP_SCOPES.split()})
+        if path == "/api/goodreads/settings":
+            return self.send_json({"connection": goodreads_status()})
         if path == "/api/whoop/connect":
             try:
                 return self.send_redirect(whoop_authorize_url())
@@ -852,6 +1087,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"connection": save_whoop_settings(body)})
             if path == "/api/whoop/sync":
                 return self.send_json(sync_whoop(body.get("days", 30)))
+            if path == "/api/goodreads/settings":
+                return self.send_json({"connection": save_goodreads_settings(body)})
+            if path == "/api/goodreads/sync":
+                return self.send_json(sync_goodreads())
             return self.send_error_json("Not found", 404)
         except Exception as exc:
             return self.send_error_json(str(exc), 400)

@@ -16,31 +16,32 @@
       </div>
       <div class="header-art" aria-hidden="true"></div>
       <div class="top-actions">
+        <button id="settingsBtn" class="quiet-button">Settings</button>
         <button id="exportBtn" class="quiet-button">Export</button>
         <button id="refreshBtn" class="icon-button" title="Refresh dashboard" aria-label="Refresh dashboard">&#10227;</button>
       </div>
     </header>
 
     <main>
-      <section class="summary" id="summary"></section>
+      <section class="summary dashboard-only" id="summary"></section>
 
-      <section class="controls">
+      <section class="controls dashboard-only">
         <div class="search-wrap">
           <input id="search" type="search" placeholder="Search targets">
         </div>
         <div class="tabs" id="tabs"></div>
       </section>
 
-      <section class="workspace">
+      <section class="workspace dashboard-only">
         <div class="goal-list" id="goals"></div>
         <aside class="detail" id="detail"></aside>
       </section>
 
-      <section class="whoop-settings" id="whoopSettings">
+      <section class="whoop-settings settings-only" id="whoopSettings" hidden>
         <div class="connection-intro">
           <p class="eyebrow">Connected Data</p>
           <h2>WHOOP integration</h2>
-          <p>Bring in sleep performance, recovery, and daily strain directly from your WHOOP account.</p>
+          <p>Bring in sleep performance, recovery, daily strain, weight, and calculated BMI directly from your WHOOP account.</p>
           <div class="connection-status" id="whoopStatus">Checking connection...</div>
         </div>
         <div class="connection-form-wrap">
@@ -68,31 +69,26 @@
         </div>
       </section>
 
-      <section class="imports">
-        <div>
-          <p class="eyebrow">Imports</p>
-          <h2>Paste CSV or JSON samples</h2>
+      <section class="whoop-settings settings-only" id="goodreadsSettings" hidden>
+        <div class="connection-intro">
+          <p class="eyebrow">Connected Data</p>
+          <h2>Goodreads read shelf</h2>
+          <p>Sync books marked as read from your Goodreads shelf into the yearly reading target.</p>
+          <div class="connection-status" id="goodreadsStatus">Checking connection...</div>
         </div>
-        <form id="importForm" class="import-grid">
-          <label>
-            Source
-            <select id="importSource">
-              <option value="whoop">Whoop / Renpho</option>
-              <option value="medium">Medium</option>
-              <option value="goodreads">Goodreads</option>
-              <option value="ultralearn">UltraLearn</option>
-              <option value="manual">Manual</option>
-            </select>
-          </label>
-          <label>
-            Force target
-            <select id="importGoal"></select>
-          </label>
-          <textarea id="importData" rows="8" spellcheck="false" placeholder="date,value,goal,note&#10;2026-08-14,85.2,weight,Renpho sync"></textarea>
-          <button type="submit">Import samples</button>
-        </form>
-        <p id="importStatus" class="status"></p>
+        <div class="connection-form-wrap">
+          <form id="goodreadsForm" class="connection-form">
+            <label class="span-all">Read-shelf RSS URL<input id="goodreadsFeedUrl" type="url" required placeholder="https://www.goodreads.com/review/list_rss/... ?shelf=read"></label>
+            <div class="connection-actions span-all">
+              <button type="submit" class="secondary-button">Save feed</button>
+              <button id="goodreadsSyncBtn" type="button" class="quiet-button" disabled>Sync books</button>
+            </div>
+          </form>
+          <p id="goodreadsMessage" class="status"></p>
+          <p class="connection-note">Open your Goodreads “Read” shelf, select its RSS link, and paste that URL here. Keep the shelf public so this server can read it.</p>
+        </div>
       </section>
+
     </main>
 
     <template id="goalCardTemplate">

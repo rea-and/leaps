@@ -79,6 +79,9 @@ Sync is idempotent: running it again updates the same daily samples. Raw sleep, 
 and recovery readings are retained in SQLite, while the existing sleep/recovery target uses
 the average of the two percentage scores for each day.
 
+WHOOP sync also imports the current body measurement (weight and height) and calculates BMI.
+After this permission is added, reconnect WHOOP once to approve `read:body_measurement`.
+
 ## Hosting at carlevato.net
 
 Run the service with `LEAPS_BASE_PATH=/leaps`. Configure the reverse proxy to pass the
