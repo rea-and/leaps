@@ -397,7 +397,7 @@ async function saveSampleEdit(event) {
 async function deleteSavedSample(sampleId) {
   if (!window.confirm("Delete this saved progress sample?")) return;
   try {
-    const result = await api(`/api/samples/${sampleId}`, { method: "DELETE" });
+    const result = await api(`/api/samples/${sampleId}/delete`, { method: "POST", body: "{}" });
     state.goals = result.goals;
     state.editingSampleId = null;
     state.sampleMessage = "Progress sample deleted.";

@@ -1174,6 +1174,13 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 log_event("success", "Tracker", "Progress sample saved", {"goalId": goal_id, "sampleId": sample_id, "date": body.get("date"), "source": body.get("source", "manual")})
                 return self.send_json({"ok": True, "goals": list_goals()}, 201)
+            if path.startswith("/api/samples/") and path.endswith("/delete"):
+                sample_id = path[len("/api/samples/"):-len("/delete")]
+                if not sample_id or "/" in sample_id:
+                    return self.send_error_json("Not found", 404)
+                sample = delete_sample(sample_id)
+                log_event("warning", "Tracker", "Progress sample deleted", {"goalId": sample["goalId"], "sampleId": sample_id, "date": sample["date"], "source": sample["source"]})
+                return self.send_json({"ok": True, "goals": list_goals()})
             if path == "/api/import":
                 params = parse_qs(parsed.query)
                 result = import_rows(
