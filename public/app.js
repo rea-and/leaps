@@ -173,7 +173,10 @@ function renderDetail() {
       <button type="submit">Save progress sample</button>
     </form>
     <h2>Plan</h2>
-    <ul class="plan-list">${goal.plan.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+    <form id="planForm" class="plan-editor">
+      <div id="planPoints">${goal.plan.map((item) => `<div class="plan-point"><input name="planPoint" value="${escapeHtml(item)}" aria-label="Plan point"><button type="button" class="sample-action" data-remove-plan>Delete</button></div>`).join("")}</div>
+      <div class="plan-actions"><button type="button" class="sample-action" id="addPlanPoint">Add point</button><button type="submit" class="sample-action">Save plan</button></div>
+    </form>
     <p class="sample-message" role="status">${escapeHtml(state.sampleMessage)}</p>
     <h2>Recent Samples</h2>
     <ul class="sample-list">${
@@ -202,6 +205,13 @@ function renderDetail() {
     }</ul>
   `;
   document.querySelector("#sampleForm").addEventListener("submit", saveSample);
+  detail.querySelector("#planForm").addEventListener("submit", savePlan);
+  detail.querySelector("#addPlanPoint").addEventListener("click", () => {
+    const row = document.createElement("div"); row.className = "plan-point";
+    row.innerHTML = '<input name="planPoint" aria-label="Plan point" autofocus><button type="button" class="sample-action" data-remove-plan>Delete</button>';
+    detail.querySelector("#planPoints").appendChild(row); bindPlanDelete(row.querySelector("[data-remove-plan]"));
+  });
+  detail.querySelectorAll("[data-remove-plan]").forEach(bindPlanDelete);
   detail.querySelectorAll("[data-edit-sample]").forEach((button) => button.addEventListener("click", () => {
     state.editingSampleId = button.dataset.editSample;
     state.sampleMessage = "";
@@ -214,6 +224,16 @@ function renderDetail() {
   }));
   detail.querySelectorAll(".sample-edit-form").forEach((form) => form.addEventListener("submit", saveSampleEdit));
   detail.querySelectorAll("[data-delete-sample]").forEach((button) => button.addEventListener("click", () => deleteSavedSample(button.dataset.deleteSample)));
+}
+
+function bindPlanDelete(button) { button.addEventListener("click", () => button.closest(".plan-point").remove()); }
+
+async function savePlan(event) {
+  event.preventDefault();
+  const goal = state.goals.find((item) => item.id === state.selectedId);
+  const plan = [...event.currentTarget.querySelectorAll("[name=planPoint]")].map((input) => input.value.trim()).filter(Boolean);
+  try { const result = await api(`/api/goals/${goal.id}/plan`, { method: "PUT", body: JSON.stringify({ plan }) }); state.goals = result.goals; state.sampleMessage = "Plan saved."; render(); }
+  catch (error) { state.sampleMessage = error.message; renderDetail(); }
 }
 
 function renderWhoop() {

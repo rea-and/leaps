@@ -611,6 +611,15 @@ def update_sample(sample_id, sample_date, value, note=""):
     return row_sample(updated)
 
 
+def update_goal_plan(goal_id, plan):
+    cleaned = [str(item).strip() for item in plan if str(item).strip()]
+    with db() as con:
+        if not con.execute("SELECT 1 FROM goals WHERE id = ?", (goal_id,)).fetchone():
+            raise ValueError("Goal not found")
+        con.execute("UPDATE goals SET plan_json = ?, updated_at = ? WHERE id = ?", (json.dumps(cleaned), now_iso(), goal_id))
+    return cleaned
+
+
 def delete_sample(sample_id):
     with db() as con:
         existing = con.execute("SELECT * FROM samples WHERE id = ?", (sample_id,)).fetchone()
@@ -1247,6 +1256,14 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = unmounted_path(parsed.path)
         try:
+            if path and path.startswith("/api/goals/") and path.endswith("/plan"):
+                goal_id = path[len("/api/goals/"):-len("/plan")]
+                body = parse_body(self)
+                if not goal_id or "/" in goal_id or not isinstance(body.get("plan"), list):
+                    return self.send_error_json("Invalid plan update", 400)
+                plan = update_goal_plan(goal_id, body["plan"])
+                log_event("success", "Tracker", "Goal plan updated", {"goalId": goal_id, "points": len(plan)})
+                return self.send_json({"ok": True, "goals": list_goals()})
             if not path or not path.startswith("/api/samples/"):
                 return self.send_error_json("Not found", 404)
             sample_id = path.removeprefix("/api/samples/")
