@@ -291,6 +291,30 @@ GOALS = [
     },
 ]
 
+GOAL_PRESENTATION = {
+    "bmi": ("Reduce BMI to 24", "Bring body mass index down to 24 through steady weight and health habits."),
+    "strain": ("Strain 15+, 6 days a week", "Reach a daily WHOOP strain of at least 15 on six days each week."),
+    "supplements": ("Never miss supplements", "Complete every planned daily supplement intake."),
+    "weekly_recovery": ("Weekly recovery 80+", "Maintain an average WHOOP recovery score of 80% or higher each completed week."),
+    "weekly_sleep": ("Weekly sleep 80+", "Maintain an average WHOOP sleep performance of 80% or higher each completed week."),
+    "weight": ("Weight 79kg", "Reach and maintain a body weight of 79 kg."),
+    "books": ("Read 10 books", "Finish ten new books before the end of the year."),
+    "medium": ("10 Medium articles every week", "Read at least ten Medium articles in each calendar week."),
+    "ultralearn": ("Complete 8 UltraLearn modules", "Finish eight UltraLearn modules before year end."),
+    "apartment": ("Move to New Home", "Find and move into a larger home with Angel before year end."),
+    "wedding": ("Organize Wedding", "Confirm the wedding timing, venue, and essential arrangements."),
+    "ams_friends": ("Connect to Ex-SG Friends every 2 weeks", "Have a meaningful catch-up with an ex-Singapore friend every two weeks."),
+    "family_calls": ("Call family weekly", "Make at least one phone call with a family member every week."),
+    "equity_reallocation": ("Complete assets reallocation", "Finish the planned reallocation of equity and other assets."),
+    "finance_tracker": ("Update Finance Tracker", "Keep the finance tracker and monthly burn-rate automation current."),
+    "engagement_ring": ("Replace engagement ring", "Choose and replace the engagement ring together."),
+    "kid_plan": ("Plan for our kid", "Create a shared plan for welcoming and supporting our future child."),
+}
+GOALS.extend([
+    {"id":"engagement_ring","category":"Me & Angel","title":"Replace engagement ring","target_value":100,"target_unit":"%","baseline_value":0,"baseline_label":"Not started","direction":"up","sample_type":"milestone","cadence":"monthly","source":"Manual","plan":["Set a budget","Choose a replacement together"]},
+    {"id":"kid_plan","category":"Me & Angel","title":"Plan for our kid","target_value":100,"target_unit":"%","baseline_value":0,"baseline_label":"Not started","direction":"up","sample_type":"milestone","cadence":"monthly","source":"Manual","plan":["Discuss the timeline","Create a shared preparation plan"]},
+])
+
 
 SCHEMA = """
 PRAGMA journal_mode = WAL;
@@ -298,6 +322,7 @@ CREATE TABLE IF NOT EXISTS goals (
   id TEXT PRIMARY KEY,
   category TEXT NOT NULL,
   title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
   target_value REAL NOT NULL,
   target_unit TEXT NOT NULL,
   baseline_value REAL NOT NULL,
@@ -425,26 +450,32 @@ def init_db():
         columns = {row["name"] for row in con.execute("PRAGMA table_info(samples)")}
         if "external_key" not in columns:
             con.execute("ALTER TABLE samples ADD COLUMN external_key TEXT")
+        goal_columns = {row["name"] for row in con.execute("PRAGMA table_info(goals)")}
+        if "description" not in goal_columns:
+            con.execute("ALTER TABLE goals ADD COLUMN description TEXT NOT NULL DEFAULT ''")
         con.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_samples_goal_external_key "
             "ON samples(goal_id, external_key) WHERE external_key IS NOT NULL"
         )
         ts = now_iso()
+        for goal_id, (title, description) in GOAL_PRESENTATION.items():
+            con.execute("UPDATE goals SET title = ?, description = ?, updated_at = ? WHERE id = ?", (title, description, ts, goal_id))
         for goal in GOALS:
             if con.execute("SELECT 1 FROM goals WHERE id = ?", (goal["id"],)).fetchone():
                 continue
             con.execute(
                 """
                 INSERT INTO goals (
-                  id, category, title, target_value, target_unit, baseline_value,
+                  id, category, title, description, target_value, target_unit, baseline_value,
                   baseline_label, direction, sample_type, cadence, source, plan_json,
                   created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     goal["id"],
                     goal["category"],
-                    goal["title"],
+                    GOAL_PRESENTATION.get(goal["id"], (goal["title"], ""))[0],
+                    GOAL_PRESENTATION.get(goal["id"], ("", ""))[1],
                     goal["target_value"],
                     goal["target_unit"],
                     goal["baseline_value"],
@@ -466,6 +497,7 @@ def row_goal(row):
         "id": row["id"],
         "category": row["category"],
         "title": row["title"],
+        "description": row["description"],
         "targetValue": row["target_value"],
         "targetUnit": row["target_unit"],
         "baselineValue": row["baseline_value"],

@@ -98,6 +98,7 @@ function renderGoals() {
     node.querySelector(".category").textContent = goal.category;
     node.querySelector(".source").textContent = goal.source;
     node.querySelector("h3").textContent = goal.title;
+    node.querySelector(".goal-description").textContent = goal.description;
     node.querySelector(".current").textContent = valueLabel(goal.currentValue, goal.targetUnit);
     node.querySelector(".target").textContent = `Target ${valueLabel(goal.targetValue, goal.targetUnit)}`;
     node.querySelector(".bar span").style.width = `${goal.progressPct}%`;
@@ -153,6 +154,7 @@ function renderDetail() {
     <div class="detail-head">
       <p class="eyebrow">${escapeHtml(goal.category)}</p>
       <h2>${escapeHtml(goal.title)}</h2>
+      <p class="goal-description">${escapeHtml(goal.description)}</p>
       <div class="chips">
         <span class="chip">${escapeHtml(goal.source)}</span>
         <span class="chip">${escapeHtml(goal.cadence)}</span>
