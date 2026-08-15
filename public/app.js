@@ -177,7 +177,7 @@ function renderDetail() {
     <h2>Journal</h2><form id="journalForm" class="journal-form"><textarea id="journalBody" required placeholder="Add a progress note"></textarea><button type="submit">Add journal entry</button></form><ul class="journal-list">${(goal.journal || []).map((entry) => `<li><span><strong>${escapeHtml(entry.date)}</strong>: ${escapeHtml(entry.body)}</span><button type="button" class="sample-action sample-delete" data-journal="${escapeHtml(entry.id)}">Delete</button></li>`).join("") || "<li>No journal entries yet.</li>"}</ul>
     <h2>Plan</h2>
     <form id="planForm" class="plan-editor">
-      <div id="planPoints">${goal.plan.map((item) => `<div class="plan-point"><input name="planPoint" value="${escapeHtml(item)}" aria-label="Plan point"><button type="button" class="sample-action" data-remove-plan>Delete</button></div>`).join("")}</div>
+      <ul id="planPoints" class="plan-points">${goal.plan.map((item) => `<li class="plan-point"><input name="planPoint" value="${escapeHtml(item)}" aria-label="Plan point"><button type="button" class="sample-action" data-remove-plan>Delete</button></li>`).join("")}</ul>
       <div class="plan-actions"><button type="button" class="sample-action" id="addPlanPoint">Add point</button><button type="submit" class="sample-action">Save plan</button></div>
     </form>
     <p class="sample-message" role="status">${escapeHtml(state.sampleMessage)}</p>
@@ -212,7 +212,7 @@ function renderDetail() {
   detail.querySelector("#journalForm").addEventListener("submit", saveJournal);
   detail.querySelectorAll("[data-journal]").forEach((button) => button.addEventListener("click", () => deleteJournal(button.dataset.journal)));
   detail.querySelector("#addPlanPoint").addEventListener("click", () => {
-    const row = document.createElement("div"); row.className = "plan-point";
+    const row = document.createElement("li"); row.className = "plan-point";
     row.innerHTML = '<input name="planPoint" aria-label="Plan point" autofocus><button type="button" class="sample-action" data-remove-plan>Delete</button>';
     detail.querySelector("#planPoints").appendChild(row); bindPlanDelete(row.querySelector("[data-remove-plan]"));
   });
