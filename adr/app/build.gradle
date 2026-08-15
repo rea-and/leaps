@@ -1,5 +1,5 @@
 plugins { id 'com.android.application' }
 
 android { namespace 'net.carlevato.leapsquick'; compileSdk 35
-    defaultConfig { applicationId 'net.carlevato.leapsquick'; minSdk 26; targetSdk 35; versionCode 4; versionName '1.0.3' }
+    defaultConfig { applicationId 'net.carlevato.leapsquick'; minSdk 26; targetSdk 35; versionCode 5; versionName '1.0.4' }
 }

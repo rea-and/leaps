@@ -11,6 +11,6 @@ public class MainActivity extends Activity {
     url.setText(getSharedPreferences("leaps",0).getString("url","https://carlevato.net/leaps"));
     int savedOpacity=getSharedPreferences("leaps",0).getInt("widgetOpacity",210);
     for(int index=0;index<OPACITIES.length;index++) if(OPACITIES[index]==savedOpacity) transparency.setSelection(index);
-    findViewById(R.id.save).setOnClickListener(v->{ String value=url.getText().toString().replaceAll("/+$",""); int opacity=OPACITIES[transparency.getSelectedItemPosition()]; getSharedPreferences("leaps",0).edit().putString("url",value).putInt("widgetOpacity",opacity).apply(); LeapsWidget.refreshAll(this,"Ready"); status.setText("Saved. Widget appearance updated."); });
+    findViewById(R.id.save).setOnClickListener(v->{ String value=url.getText().toString().replaceAll("/+$",""); int opacity=OPACITIES[transparency.getSelectedItemPosition()]; getSharedPreferences("leaps",0).edit().putString("url",value).putInt("widgetOpacity",opacity).apply(); LeapsWidget.refreshAll(this,null,null); status.setText("Saved. Widget appearance updated."); });
   }
 }
