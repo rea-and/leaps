@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Leaps - H2 2026 Progress</title>
     <base href="__LEAPS_BASE_PATH__/">
-    <link rel="stylesheet" href="styles.css?v=20260815-masthead">
+    <link rel="stylesheet" href="styles.css?v=20260815-controls">
   </head>
   <body>
     <header class="topbar">
@@ -15,20 +15,20 @@
         <p class="topbar-subtitle">A clear view of the habits and projects that matter this half.</p>
       </div>
       <div class="header-art" aria-hidden="true"></div>
-      <div class="top-actions">
-        <button id="settingsBtn" class="quiet-button">Settings</button>
-        <button id="refreshBtn" class="icon-button" title="Refresh dashboard" aria-label="Refresh dashboard">&#10227;</button>
-      </div>
     </header>
 
     <main>
       <section class="summary dashboard-only" id="summary"></section>
 
       <section class="controls dashboard-only">
+        <div class="tabs" id="tabs"></div>
         <div class="search-wrap">
           <input id="search" type="search" placeholder="Search targets">
         </div>
-        <div class="tabs" id="tabs"></div>
+        <div class="dashboard-actions">
+          <button id="settingsBtn" class="quiet-button">Settings</button>
+          <button id="refreshBtn" class="icon-button" title="Refresh dashboard" aria-label="Refresh dashboard">&#10227;</button>
+        </div>
       </section>
 
       <section class="workspace dashboard-only">
