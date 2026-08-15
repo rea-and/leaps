@@ -456,6 +456,19 @@ async function resetAllSamples() {
   } catch (error) { message.textContent = error.message; } finally { button.disabled = false; }
 }
 
+async function resetAllLogs() {
+  if (!window.confirm("Delete all saved server activity logs? This cannot be undone.")) return;
+  const button = document.querySelector("#resetLogsBtn");
+  const message = document.querySelector("#resetLogsMessage");
+  button.disabled = true;
+  try {
+    const result = await api("/api/logs/reset", { method: "POST", body: "{}" });
+    state.logs = [];
+    renderLogs();
+    message.textContent = `${result.deleted} logs cleared.`;
+  } catch (error) { message.textContent = error.message; } finally { button.disabled = false; }
+}
+
 async function saveSample(event) {
   event.preventDefault();
   const goal = state.goals.find((g) => g.id === state.selectedId);
@@ -539,6 +552,7 @@ document.querySelector("#goodreadsForm").addEventListener("submit", saveGoodread
 document.querySelector("#goodreadsSyncBtn").addEventListener("click", syncGoodreads);
 document.querySelector("#refreshLogsBtn").addEventListener("click", loadLogs);
 document.querySelector("#resetSamplesBtn").addEventListener("click", resetAllSamples);
+document.querySelector("#resetLogsBtn").addEventListener("click", resetAllLogs);
 document.querySelector("#settingsBtn").addEventListener("click", () => setSettingsMode(!state.settingsOpen));
 
 Promise.all([load(), loadWhoop(), loadGoodreads(), loadLogs()]).then(() => {

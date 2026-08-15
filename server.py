@@ -744,6 +744,13 @@ def reset_all_samples():
     return count
 
 
+def reset_all_logs():
+    with db() as con:
+        count = con.execute("SELECT COUNT(*) AS n FROM activity_logs").fetchone()["n"]
+        con.execute("DELETE FROM activity_logs")
+    return count
+
+
 def refresh_supplement_performance(sample_day):
     sample_day = require_date(sample_day)
     window_start = (date.fromisoformat(sample_day) - timedelta(days=29)).isoformat()
@@ -1404,6 +1411,8 @@ class Handler(BaseHTTPRequestHandler):
                 count = reset_all_samples()
                 log_event("warning", "Tracker", "All progress samples reset", {"deletedSamples": count})
                 return self.send_json({"ok": True, "deleted": count, "goals": list_goals()})
+            if path == "/api/logs/reset":
+                return self.send_json({"ok": True, "deleted": reset_all_logs()})
             if path == "/api/samples":
                 goal_id = body.get("goalId")
                 sample_id = insert_sample(
