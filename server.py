@@ -43,6 +43,8 @@ GOOGLE_FIT_API = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggrega
 GOOGLE_FIT_SCOPE = "https://www.googleapis.com/auth/fitness.body.read"
 LOCAL_TZ = ZoneInfo(os.environ.get("LEAPS_TIMEZONE", "Asia/Singapore")) if ZoneInfo else timezone(timedelta(hours=8), "Asia/Singapore")
 WEEKLY_WHOOP_GOALS = ("strain", "weekly_sleep", "weekly_recovery")
+PROJECT_START_DATE = date(2026, 8, 1)
+PROJECT_START = PROJECT_START_DATE.isoformat()
 
 
 def mounted_path(path="/"):
@@ -517,6 +519,11 @@ def init_db():
         for goal_id, rules in GOAL_RULES.items():
             columns = ", ".join(f"{column} = ?" for column in rules)
             con.execute(f"UPDATE goals SET {columns}, updated_at = ? WHERE id = ?", (*rules.values(), ts, goal_id))
+        con.execute("DELETE FROM samples WHERE sample_date < ?", (PROJECT_START,))
+        con.execute("DELETE FROM whoop_daily_metrics WHERE sample_date < ?", (PROJECT_START,))
+        con.execute("DELETE FROM google_fit_daily_metrics WHERE sample_date < ?", (PROJECT_START,))
+        con.execute("DELETE FROM goodreads_read_books WHERE read_date < ?", (PROJECT_START,))
+        con.execute("DELETE FROM supplement_checks WHERE sample_date < ?", (PROJECT_START,))
         con.execute("UPDATE goals SET archived = 1, updated_at = ? WHERE id = 'sleep_recovery'", (ts,))
 
 
@@ -580,13 +587,13 @@ def list_goals():
                 SELECT s.* FROM samples s
                 JOIN (
                   SELECT goal_id, MAX(sample_date || created_at) AS marker
-                  FROM samples GROUP BY goal_id
+                  FROM samples WHERE sample_date >= ? GROUP BY goal_id
                 ) m ON m.goal_id = s.goal_id AND m.marker = s.sample_date || s.created_at
-                """
+                """, (PROJECT_START,)
             )
         }
         samples = {}
-        for r in con.execute("SELECT * FROM samples ORDER BY sample_date ASC, created_at ASC"):
+        for r in con.execute("SELECT * FROM samples WHERE sample_date >= ? ORDER BY sample_date ASC, created_at ASC", (PROJECT_START,)):
             samples.setdefault(r["goal_id"], []).append(row_sample(r))
         journals = {}
         for r in con.execute("SELECT * FROM journal_entries ORDER BY created_at DESC"):
@@ -620,7 +627,9 @@ def parse_body(handler):
 def require_date(value):
     if not value:
         return date.today().isoformat()
-    datetime.strptime(value, "%Y-%m-%d")
+    parsed = datetime.strptime(value, "%Y-%m-%d").date()
+    if parsed < PROJECT_START_DATE:
+        raise ValueError(f"Tracking starts on {PROJECT_START}")
     return value
 
 
@@ -844,14 +853,15 @@ def sync_goodreads():
         except (TypeError, ValueError):
             read_date = str(read_at)[:10]
             datetime.strptime(read_date, "%Y-%m-%d")
+        if read_date < PROJECT_START:
+            continue
         with db() as con:
             con.execute("""INSERT INTO goodreads_read_books (book_id, title, read_date, raw_xml, synced_at)
               VALUES (?, ?, ?, ?, ?) ON CONFLICT(book_id) DO UPDATE SET title=excluded.title, read_date=excluded.read_date, raw_xml=excluded.raw_xml, synced_at=excluded.synced_at""", (book_id, title, read_date, ElementTree.tostring(item, encoding="unicode"), now_iso()))
         saved += 1
-    year_start = f"{date.today().year}-01-01"
     with db() as con:
-        count = con.execute("SELECT COUNT(*) AS n FROM goodreads_read_books WHERE read_date >= ?", (year_start,)).fetchone()["n"]
-        detail = f"Synced {saved} books from Goodreads; {count} marked read this year."
+        count = con.execute("SELECT COUNT(*) AS n FROM goodreads_read_books WHERE read_date >= ?", (PROJECT_START,)).fetchone()["n"]
+        detail = f"Synced {saved} books from Goodreads; {count} marked read since {PROJECT_START}."
         con.execute("UPDATE connections SET last_sync_at=?, last_sync_detail=?, updated_at=? WHERE provider='goodreads'", (now_iso(), detail, now_iso()))
     insert_sample("books", date.today().isoformat(), count, "Goodreads read shelf", "goodreads", {"feedUrl": row["client_id"]}, f"goodreads:{date.today().year}:books")
     log_event("success", "Goodreads", "Sync completed", {"booksProcessed": saved, "readThisYear": count})
@@ -981,6 +991,8 @@ def sync_google_fit(days=90):
         if not values:
             continue
         sample_date = datetime.fromtimestamp(int(bucket["startTimeMillis"]) / 1000, timezone.utc).date().isoformat()
+        if sample_date < PROJECT_START:
+            continue
         weight = values[-1]
         bmi = weight / (height_m * height_m)
         raw = {"bucket": bucket, "source": "Google Fit"}
@@ -1112,6 +1124,8 @@ def complete_whoop_oauth(code, state):
 
 
 def record_whoop_weekly_performance(week_start, week_end):
+    if week_start < PROJECT_START_DATE:
+        return 0
     with db() as con:
         weekly = con.execute(
             """SELECT
@@ -1179,7 +1193,7 @@ def sync_whoop(days=30, include_cycles=True, include_weekly=True):
             con.execute("UPDATE connections SET last_sync_at = ?, last_sync_detail = ?, updated_at = ? WHERE provider = 'whoop'", (now_iso(), detail, now_iso()))
         log_event("success", "WHOOP", "Body measurement sync completed", {"bodySamples": body_samples})
         return {"synced": 0, "days": days, "detail": detail, "connection": connection_status()}
-    start = datetime.now(timezone.utc).timestamp() - days * 86400
+    start = max(datetime.now(timezone.utc) - timedelta(days=days), datetime.combine(PROJECT_START_DATE, datetime.min.time(), timezone.utc)).timestamp()
     url = WHOOP_API + "/cycle?" + urlencode({"limit": 25, "start": datetime.fromtimestamp(start, timezone.utc).isoformat()})
     cycles = []
     while url and len(cycles) < 500:
@@ -1194,6 +1208,8 @@ def sync_whoop(days=30, include_cycles=True, include_weekly=True):
             continue
         cycle_id = str(cycle["id"])
         cycle_date = str(cycle.get("end") or cycle.get("start") or date.today().isoformat())[:10]
+        if cycle_date < PROJECT_START:
+            continue
         try:
             sleep = whoop_request(f"{WHOOP_API}/cycle/{cycle_id}/sleep", token)
         except WhoopRequestError as exc:
