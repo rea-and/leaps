@@ -166,20 +166,25 @@ function renderDetail() {
       <ul id="planPoints" class="plan-points">${goal.plan.map((item) => `<li class="plan-point"><input name="planPoint" value="${escapeHtml(item)}" aria-label="Plan point"><button type="button" class="sample-action" data-remove-plan>Delete</button></li>`).join("")}</ul>
       <div class="plan-actions"><button type="button" class="sample-action" id="addPlanPoint">Add point</button><button type="submit" class="sample-action">Save plan</button></div>
     </form>
+    <div class="detail-divider" aria-hidden="true"></div>
     <div class="detail-grid">
       <div class="mini-stat"><span>Current</span><strong>${valueLabel(goal.currentValue, goal.targetUnit)}</strong></div>
       <div class="mini-stat"><span>Target</span><strong>${valueLabel(goal.targetValue, goal.targetUnit)}</strong></div>
       <div class="mini-stat"><span>Baseline</span><strong>${goal.baselineLabel}</strong></div>
       <div class="mini-stat"><span>Progress</span><strong>${goal.progressPct}%</strong></div>
     </div>
+    <div class="detail-divider" aria-hidden="true"></div>
     <div class="trend">${makeTrend(goal)}</div>
+    <div class="detail-divider" aria-hidden="true"></div>
     <form class="sample-form" id="sampleForm">
       <label>Date<input id="sampleDate" type="date" value="${new Date().toISOString().slice(0, 10)}"></label>
       <label>Value<input id="sampleValue" type="number" step="0.01" required placeholder="${goal.targetUnit}"></label>
       <label>Note<input id="sampleNote" type="text" placeholder="Optional context"></label>
       <button type="submit">Save progress sample</button>
     </form>
+    <div class="detail-divider" aria-hidden="true"></div>
     <h2>Journal</h2><form id="journalForm" class="journal-form"><textarea id="journalBody" required placeholder="Add a progress note"></textarea><button type="submit">Add journal entry</button></form><ul class="journal-list">${(goal.journal || []).map((entry) => `<li><span><strong>${escapeHtml(entry.date)}</strong>: ${escapeHtml(entry.body)}</span><button type="button" class="sample-action sample-delete" data-journal="${escapeHtml(entry.id)}">Delete</button></li>`).join("") || "<li>No journal entries yet.</li>"}</ul>
+    <div class="detail-divider" aria-hidden="true"></div>
     <p class="sample-message" role="status">${escapeHtml(state.sampleMessage)}</p>
     <h2>Recent Samples</h2>
     <ul class="sample-list">${
