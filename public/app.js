@@ -174,6 +174,7 @@ function renderDetail() {
       <label>Note<input id="sampleNote" type="text" placeholder="Optional context"></label>
       <button type="submit">Save progress sample</button>
     </form>
+    <h2>Journal</h2><form id="journalForm" class="journal-form"><textarea id="journalBody" required placeholder="Add a progress note"></textarea><button type="submit">Add journal entry</button></form><ul class="journal-list">${(goal.journal || []).map((entry) => `<li><span><strong>${escapeHtml(entry.date)}</strong>: ${escapeHtml(entry.body)}</span><button type="button" class="sample-action sample-delete" data-journal="${escapeHtml(entry.id)}">Delete</button></li>`).join("") || "<li>No journal entries yet.</li>"}</ul>
     <h2>Plan</h2>
     <form id="planForm" class="plan-editor">
       <div id="planPoints">${goal.plan.map((item) => `<div class="plan-point"><input name="planPoint" value="${escapeHtml(item)}" aria-label="Plan point"><button type="button" class="sample-action" data-remove-plan>Delete</button></div>`).join("")}</div>
@@ -208,6 +209,8 @@ function renderDetail() {
   `;
   document.querySelector("#sampleForm").addEventListener("submit", saveSample);
   detail.querySelector("#planForm").addEventListener("submit", savePlan);
+  detail.querySelector("#journalForm").addEventListener("submit", saveJournal);
+  detail.querySelectorAll("[data-journal]").forEach((button) => button.addEventListener("click", () => deleteJournal(button.dataset.journal)));
   detail.querySelector("#addPlanPoint").addEventListener("click", () => {
     const row = document.createElement("div"); row.className = "plan-point";
     row.innerHTML = '<input name="planPoint" aria-label="Plan point" autofocus><button type="button" class="sample-action" data-remove-plan>Delete</button>';
@@ -237,6 +240,8 @@ async function savePlan(event) {
   try { const result = await api(`/api/goals/${goal.id}/plan`, { method: "PUT", body: JSON.stringify({ plan }) }); state.goals = result.goals; state.sampleMessage = "Plan saved."; render(); }
   catch (error) { state.sampleMessage = error.message; renderDetail(); }
 }
+async function saveJournal(event) { event.preventDefault(); const goal=state.goals.find((item)=>item.id===state.selectedId); try { const result=await api("/api/journal",{method:"POST",body:JSON.stringify({goalId:goal.id,body:document.querySelector("#journalBody").value})}); state.goals=result.goals; render(); } catch(error) { state.sampleMessage=error.message; renderDetail(); } }
+async function deleteJournal(id) { if(!window.confirm("Delete this journal entry?")) return; try { const result=await api(`/api/journal/${id}`,{method:"DELETE"}); state.goals=result.goals; render(); } catch(error) { state.sampleMessage=error.message; renderDetail(); } }
 
 function renderWhoop() {
   const connection = state.whoop?.connection;

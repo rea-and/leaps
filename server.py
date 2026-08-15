@@ -400,6 +400,7 @@ CREATE TABLE IF NOT EXISTS activity_logs (
   event TEXT NOT NULL,
   detail_json TEXT NOT NULL DEFAULT '{}'
 );
+CREATE TABLE IF NOT EXISTS journal_entries (id TEXT PRIMARY KEY, goal_id TEXT NOT NULL REFERENCES goals(id) ON DELETE CASCADE, entry_date TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_occurred_at ON activity_logs(occurred_at DESC);
 """
 
@@ -555,12 +556,16 @@ def list_goals():
         samples = {}
         for r in con.execute("SELECT * FROM samples ORDER BY sample_date ASC, created_at ASC"):
             samples.setdefault(r["goal_id"], []).append(row_sample(r))
+        journals = {}
+        for r in con.execute("SELECT * FROM journal_entries ORDER BY created_at DESC"):
+            journals.setdefault(r["goal_id"], []).append({"id": r["id"], "date": r["entry_date"], "body": r["body"]})
     for goal in goals:
         latest_sample = latest.get(goal["id"])
         goal["latestSample"] = latest_sample
         goal["currentValue"] = latest_sample["value"] if latest_sample else goal["baselineValue"]
         goal["progressPct"] = progress_for(goal, latest_sample)
         goal["samples"] = samples.get(goal["id"], [])
+        goal["journal"] = journals.get(goal["id"], [])
     return goals
 
 
@@ -659,6 +664,20 @@ def delete_sample(sample_id):
             raise ValueError("Sample not found")
         con.execute("DELETE FROM samples WHERE id = ?", (sample_id,))
     return row_sample(existing)
+
+def add_journal(goal_id, body):
+    body = str(body or "").strip()
+    if not body: raise ValueError("Journal note cannot be empty")
+    entry = {"id": uuid.uuid4().hex, "goal_id": goal_id, "entry_date": date.today().isoformat(), "body": body, "created_at": now_iso()}
+    with db() as con: con.execute("INSERT INTO journal_entries (id, goal_id, entry_date, body, created_at) VALUES (:id, :goal_id, :entry_date, :body, :created_at)", entry)
+    return entry
+
+def delete_journal(entry_id):
+    with db() as con:
+        entry = con.execute("SELECT * FROM journal_entries WHERE id=?", (entry_id,)).fetchone()
+        if not entry: raise ValueError("Journal entry not found")
+        con.execute("DELETE FROM journal_entries WHERE id=?", (entry_id,))
+    return entry
 
 
 def reset_all_samples():
@@ -1235,6 +1254,9 @@ class Handler(BaseHTTPRequestHandler):
             if path is None:
                 return self.send_error_json("Not found", 404)
             body = parse_body(self)
+            if path == "/api/journal":
+                entry = add_journal(body.get("goalId"), body.get("body")); log_event("success", "Tracker", "Journal entry added", {"goalId": entry["goal_id"]})
+                return self.send_json({"ok": True, "goals": list_goals()}, 201)
             if path == "/api/quick-record":
                 result = quick_record(str(body.get("kind") or ""))
                 log_event("success", "Android widget", "Quick record saved", result)
@@ -1313,6 +1335,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = unmounted_path(parsed.path)
         try:
+            if path and path.startswith("/api/journal/"):
+                entry = delete_journal(path.removeprefix("/api/journal/")); log_event("warning", "Tracker", "Journal entry deleted", {"goalId": entry["goal_id"]})
+                return self.send_json({"ok": True, "goals": list_goals()})
             if not path or not path.startswith("/api/samples/"):
                 return self.send_error_json("Not found", 404)
             sample_id = path.removeprefix("/api/samples/")
