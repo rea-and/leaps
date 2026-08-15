@@ -519,6 +519,7 @@ def init_db():
         for goal_id, rules in GOAL_RULES.items():
             columns = ", ".join(f"{column} = ?" for column in rules)
             con.execute(f"UPDATE goals SET {columns}, updated_at = ? WHERE id = ?", (*rules.values(), ts, goal_id))
+        con.execute("UPDATE goals SET baseline_value = 0, baseline_label = 'Not set', updated_at = ?", (ts,))
         con.execute("DELETE FROM samples WHERE sample_date < ?", (PROJECT_START,))
         con.execute("DELETE FROM whoop_daily_metrics WHERE sample_date < ?", (PROJECT_START,))
         con.execute("DELETE FROM google_fit_daily_metrics WHERE sample_date < ?", (PROJECT_START,))
@@ -558,17 +559,16 @@ def row_sample(row):
     }
 
 
-def progress_for(goal, sample):
-    current = sample["value"] if sample else goal["baselineValue"]
-    start = goal["baselineValue"]
+def progress_for(goal, sample, first_sample):
+    if not sample:
+        return None
+    current = sample["value"]
     target = goal["targetValue"]
-    denom = target - start
-    if denom == 0:
-        pct = 100
+    if goal["direction"] != "down":
+        pct = (current / target) * 100 if target else 100
     else:
-        pct = ((current - start) / denom) * 100
-    if goal["direction"] == "down":
-        pct = ((start - current) / (start - target)) * 100 if start != target else 100
+        start = first_sample["value"]
+        pct = ((start - current) / (start - target)) * 100 if start != target else (100 if current <= target else 0)
     return max(0, min(100, round(pct, 1)))
 
 
@@ -580,18 +580,6 @@ def latest_series_sample(samples, series):
 def list_goals():
     with db() as con:
         goals = [row_goal(r) for r in con.execute("SELECT * FROM goals WHERE archived = 0 ORDER BY category, sort_order, id")]
-        latest = {
-            r["goal_id"]: row_sample(r)
-            for r in con.execute(
-                """
-                SELECT s.* FROM samples s
-                JOIN (
-                  SELECT goal_id, MAX(sample_date || created_at) AS marker
-                  FROM samples WHERE sample_date >= ? GROUP BY goal_id
-                ) m ON m.goal_id = s.goal_id AND m.marker = s.sample_date || s.created_at
-                """, (PROJECT_START,)
-            )
-        }
         samples = {}
         for r in con.execute("SELECT * FROM samples WHERE sample_date >= ? ORDER BY sample_date ASC, created_at ASC", (PROJECT_START,)):
             samples.setdefault(r["goal_id"], []).append(row_sample(r))
@@ -599,15 +587,19 @@ def list_goals():
         for r in con.execute("SELECT * FROM journal_entries ORDER BY created_at DESC"):
             journals.setdefault(r["goal_id"], []).append({"id": r["id"], "date": r["entry_date"], "body": r["body"]})
     for goal in goals:
-        latest_sample = latest.get(goal["id"])
         goal_samples = samples.get(goal["id"], [])
+        performance_samples = goal_samples
         if goal["id"] in WEEKLY_WHOOP_GOALS:
-            latest_sample = latest_series_sample(goal_samples, "rolling_4_week") or latest_sample
+            performance_samples = [sample for sample in goal_samples if sample.get("metadata", {}).get("series") == "rolling_4_week"]
         elif goal["id"] == "supplements":
-            latest_sample = latest_series_sample(goal_samples, "rolling_30_day") or latest_sample
+            performance_samples = [sample for sample in goal_samples if sample.get("metadata", {}).get("series") == "rolling_30_day"]
+        latest_sample = performance_samples[-1] if performance_samples else None
+        first_sample = performance_samples[0] if performance_samples else None
         goal["latestSample"] = latest_sample
-        goal["currentValue"] = latest_sample["value"] if latest_sample else goal["baselineValue"]
-        goal["progressPct"] = progress_for(goal, latest_sample)
+        goal["currentValue"] = latest_sample["value"] if latest_sample else None
+        goal["baselineValue"] = first_sample["value"] if first_sample else None
+        goal["baselineLabel"] = f"First record {first_sample['date']}" if first_sample else "Not set"
+        goal["progressPct"] = progress_for(goal, latest_sample, first_sample)
         goal["samples"] = goal_samples
         goal["journal"] = journals.get(goal["id"], [])
     return goals
@@ -741,6 +733,10 @@ def reset_all_samples():
     with db() as con:
         count = con.execute("SELECT COUNT(*) AS n FROM samples").fetchone()["n"]
         con.execute("DELETE FROM samples")
+        con.execute("DELETE FROM whoop_daily_metrics")
+        con.execute("DELETE FROM google_fit_daily_metrics")
+        con.execute("DELETE FROM goodreads_read_books")
+        con.execute("DELETE FROM supplement_checks")
     return count
 
 

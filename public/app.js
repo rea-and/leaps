@@ -37,6 +37,7 @@ async function api(path, options = {}) {
 }
 
 function valueLabel(value, unit) {
+  if (value === null || value === undefined) return "No data";
   return `${fmt.format(value)} ${unit}`.trim();
 }
 
@@ -57,15 +58,16 @@ function filteredGoals() {
 }
 
 function renderSummary() {
-  const avg = state.goals.length
-    ? state.goals.reduce((sum, goal) => sum + goal.progressPct, 0) / state.goals.length
-    : 0;
-  const onTrack = state.goals.filter((goal) => goal.progressPct >= 70).length;
+  const trackedGoals = state.goals.filter((goal) => typeof goal.progressPct === "number");
+  const avg = trackedGoals.length
+    ? trackedGoals.reduce((sum, goal) => sum + goal.progressPct, 0) / trackedGoals.length
+    : null;
+  const onTrack = trackedGoals.filter((goal) => goal.progressPct >= 70).length;
   const samples = state.goals.reduce((sum, goal) => sum + goal.samples.length, 0);
   const categoriesCount = new Set(state.goals.map((goal) => goal.category)).size;
   document.querySelector("#summary").innerHTML = [
-    ["Overall", `${fmt.format(avg)}%`],
-    ["Targets on track", `${onTrack}/${state.goals.length}`],
+    ["Overall", avg === null ? "No data" : `${fmt.format(avg)}%`],
+    ["Targets on track", trackedGoals.length ? `${onTrack}/${trackedGoals.length}` : "No data"],
     ["Samples saved", samples],
     ["Categories", categoriesCount],
   ]
@@ -106,7 +108,7 @@ function renderGoals() {
     node.querySelector(".goal-description").textContent = goal.description;
     node.querySelector(".current").textContent = valueLabel(goal.currentValue, goal.targetUnit);
     node.querySelector(".target").textContent = `Target ${valueLabel(goal.targetValue, goal.targetUnit)}`;
-    node.querySelector(".bar span").style.width = `${goal.progressPct}%`;
+    node.querySelector(".bar span").style.width = `${goal.progressPct ?? 0}%`;
     node.addEventListener("click", () => {
       if (suppressGoalClick) return;
       state.selectedId = goal.id;
@@ -230,8 +232,8 @@ function renderDetail() {
     <div class="detail-grid">
       <div class="mini-stat"><span>Current</span><strong>${valueLabel(goal.currentValue, goal.targetUnit)}</strong></div>
       <div class="mini-stat"><span>Target</span><strong>${valueLabel(goal.targetValue, goal.targetUnit)}</strong></div>
-      <div class="mini-stat"><span>Baseline</span><strong>${goal.baselineLabel}</strong></div>
-      <div class="mini-stat"><span>Progress</span><strong>${goal.progressPct}%</strong></div>
+      <div class="mini-stat"><span>Baseline</span><strong>${valueLabel(goal.baselineValue, goal.targetUnit)}</strong></div>
+      <div class="mini-stat"><span>Progress</span><strong>${goal.progressPct === null ? "No data" : `${goal.progressPct}%`}</strong></div>
     </div>
     <div class="detail-divider" aria-hidden="true"></div>
     ${trendMarkup}
