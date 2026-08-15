@@ -14,6 +14,8 @@ let state = {
 const fmt = new Intl.NumberFormat("en", { maximumFractionDigits: 1 });
 const basePath = new URL(document.baseURI).pathname.replace(/\/$/, "");
 const categoryOrder = ["Wellness", "Personal Growth", "Me & Angel", "Social Growth", "Personal Finances"];
+let draggedGoal = null;
+let suppressGoalClick = false;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -94,6 +96,9 @@ function renderGoals() {
   }
   goals.forEach((goal) => {
     const node = template.content.firstElementChild.cloneNode(true);
+    node.dataset.goalId = goal.id;
+    node.draggable = true;
+    node.title = "Drag to reorder target";
     node.classList.toggle("selected", goal.id === state.selectedId);
     node.querySelector(".category").textContent = goal.category;
     node.querySelector(".source").textContent = goal.source;
@@ -103,11 +108,51 @@ function renderGoals() {
     node.querySelector(".target").textContent = `Target ${valueLabel(goal.targetValue, goal.targetUnit)}`;
     node.querySelector(".bar span").style.width = `${goal.progressPct}%`;
     node.addEventListener("click", () => {
+      if (suppressGoalClick) return;
       state.selectedId = goal.id;
       render();
     });
+    node.addEventListener("dragstart", (event) => {
+      draggedGoal = goal;
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", goal.id);
+      node.classList.add("dragging");
+    });
+    node.addEventListener("dragend", () => {
+      draggedGoal = null;
+      node.classList.remove("dragging");
+      wrap.querySelectorAll(".drag-over").forEach((card) => card.classList.remove("drag-over"));
+    });
+    node.addEventListener("dragover", (event) => {
+      if (!draggedGoal || draggedGoal.id === goal.id || draggedGoal.category !== goal.category) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      node.classList.add("drag-over");
+    });
+    node.addEventListener("dragleave", () => node.classList.remove("drag-over"));
+    node.addEventListener("drop", (event) => reorderGoals(event, goal, node));
     wrap.appendChild(node);
   });
+}
+
+async function reorderGoals(event, targetGoal, targetNode) {
+  if (!draggedGoal || draggedGoal.id === targetGoal.id || draggedGoal.category !== targetGoal.category) return;
+  event.preventDefault();
+  const categoryGoals = state.goals.filter((goal) => goal.category === draggedGoal.category);
+  const ordered = categoryGoals.filter((goal) => goal.id !== draggedGoal.id);
+  const targetIndex = ordered.findIndex((goal) => goal.id === targetGoal.id);
+  const insertAfter = event.clientY > targetNode.getBoundingClientRect().top + targetNode.offsetHeight / 2;
+  ordered.splice(targetIndex + (insertAfter ? 1 : 0), 0, draggedGoal);
+  suppressGoalClick = true;
+  window.setTimeout(() => { suppressGoalClick = false; }, 0);
+  try {
+    const result = await api("/api/goals/order", { method: "PUT", body: JSON.stringify({ category: draggedGoal.category, goalIds: ordered.map((goal) => goal.id) }) });
+    state.goals = result.goals;
+    render();
+  } catch (error) {
+    state.sampleMessage = error.message;
+    renderDetail();
+  }
 }
 
 function makeTrend(goal) {

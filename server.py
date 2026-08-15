@@ -332,6 +332,7 @@ CREATE TABLE IF NOT EXISTS goals (
   cadence TEXT NOT NULL,
   source TEXT NOT NULL,
   plan_json TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
   archived INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -454,6 +455,11 @@ def init_db():
         goal_columns = {row["name"] for row in con.execute("PRAGMA table_info(goals)")}
         if "description" not in goal_columns:
             con.execute("ALTER TABLE goals ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+        if "sort_order" not in goal_columns:
+            con.execute("ALTER TABLE goals ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+            existing_goals = con.execute("SELECT id FROM goals WHERE archived = 0 ORDER BY category, id").fetchall()
+            for position, row in enumerate(existing_goals):
+                con.execute("UPDATE goals SET sort_order = ? WHERE id = ?", (position, row["id"]))
         con.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_samples_goal_external_key "
             "ON samples(goal_id, external_key) WHERE external_key IS NOT NULL"
@@ -540,7 +546,7 @@ def progress_for(goal, sample):
 
 def list_goals():
     with db() as con:
-        goals = [row_goal(r) for r in con.execute("SELECT * FROM goals WHERE archived = 0 ORDER BY category, id")]
+        goals = [row_goal(r) for r in con.execute("SELECT * FROM goals WHERE archived = 0 ORDER BY category, sort_order, id")]
         latest = {
             r["goal_id"]: row_sample(r)
             for r in con.execute(
@@ -655,6 +661,17 @@ def update_goal_plan(goal_id, plan):
             raise ValueError("Goal not found")
         con.execute("UPDATE goals SET plan_json = ?, updated_at = ? WHERE id = ?", (json.dumps(cleaned), now_iso(), goal_id))
     return cleaned
+
+
+def update_goal_order(category, goal_ids):
+    if not isinstance(category, str) or not category.strip() or not isinstance(goal_ids, list):
+        raise ValueError("Invalid target order")
+    with db() as con:
+        expected = [row["id"] for row in con.execute("SELECT id FROM goals WHERE archived = 0 AND category = ?", (category,))]
+        if len(goal_ids) != len(expected) or set(goal_ids) != set(expected):
+            raise ValueError("Target order does not match this category")
+        for position, goal_id in enumerate(goal_ids):
+            con.execute("UPDATE goals SET sort_order = ?, updated_at = ? WHERE id = ?", (position, now_iso(), goal_id))
 
 
 def delete_sample(sample_id):
@@ -1310,6 +1327,11 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = unmounted_path(parsed.path)
         try:
+            if path == "/api/goals/order":
+                body = parse_body(self)
+                update_goal_order(body.get("category"), body.get("goalIds"))
+                log_event("success", "Tracker", "Target order updated", {"category": body.get("category"), "count": len(body.get("goalIds", []))})
+                return self.send_json({"ok": True, "goals": list_goals()})
             if path and path.startswith("/api/goals/") and path.endswith("/plan"):
                 goal_id = path[len("/api/goals/"):-len("/plan")]
                 body = parse_body(self)
