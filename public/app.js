@@ -180,7 +180,7 @@ function renderDetail() {
       <label>Date<input id="sampleDate" type="date" value="${new Date().toISOString().slice(0, 10)}"></label>
       <label>Value<input id="sampleValue" type="number" step="0.01" required placeholder="${goal.targetUnit}"></label>
       <label>Note<input id="sampleNote" type="text" placeholder="Optional context"></label>
-      <button type="submit">Save progress sample</button>
+      <button type="submit">Add progress</button>
     </form>
     <div class="detail-divider" aria-hidden="true"></div>
     <h2>Journal</h2><form id="journalForm" class="journal-form"><textarea id="journalBody" required placeholder="Add a progress note"></textarea><button type="submit">Add journal entry</button></form><ul class="journal-list">${(goal.journal || []).map((entry) => `<li><span><strong>${escapeHtml(entry.date)}</strong>: ${escapeHtml(entry.body)}</span><button type="button" class="sample-action sample-delete" data-journal="${escapeHtml(entry.id)}">Delete</button></li>`).join("") || "<li>No journal entries yet.</li>"}</ul>
