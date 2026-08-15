@@ -178,11 +178,14 @@ function makeTrend(goal, samples = goal.samples) {
   const path = points.map((p, i) => `${i ? "L" : "M"} ${x(i)} ${y(p.value)}`).join(" ");
   const targetY = y(goal.targetValue);
   const dots = points
-    .map((p, i) => `<g><circle cx="${x(i)}" cy="${y(p.value)}" r="5"><title>${p.label}: ${valueLabel(p.value, goal.targetUnit)}</title></circle><text x="${x(i)}" y="${Math.max(17, y(p.value) - 11)}" text-anchor="middle" fill="#14312b" font-size="12" font-weight="700">${escapeHtml(valueLabel(p.value, goal.targetUnit))}</text><text x="${x(i)}" y="${h - 20}" text-anchor="middle" fill="#64605a" font-size="11">${escapeHtml(p.label)}</text></g>`)
+    .map((p, i) => {
+      const anchor = i === 0 ? "start" : i === points.length - 1 ? "end" : "middle";
+      return `<g><circle cx="${x(i)}" cy="${y(p.value)}" r="5"><title>${p.label}: ${valueLabel(p.value, goal.targetUnit)}</title></circle><text x="${x(i)}" y="${Math.max(17, y(p.value) - 11)}" text-anchor="${anchor}" fill="#14312b" font-size="12" font-weight="700">${escapeHtml(valueLabel(p.value, goal.targetUnit))}</text><text x="${x(i)}" y="${h - 20}" text-anchor="${anchor}" fill="#64605a" font-size="11">${escapeHtml(p.label)}</text></g>`;
+    })
     .join("");
   return `
     <svg viewBox="0 0 ${w} ${h}" style="min-width:${w}px" role="img" aria-label="Samples and target for ${goal.title}">
-      <rect width="${w}" height="${h}" fill="#fffdf8"></rect>
+      <rect width="${w}" height="${h}" fill="#fffdf9"></rect>
       <line x1="${pad.left}" x2="${w - pad.right}" y1="${targetY}" y2="${targetY}" stroke="#a86900" stroke-dasharray="6 6"></line>
       <text x="${w - pad.right}" y="${Math.max(18, targetY - 9)}" text-anchor="end" fill="#a86900" font-size="12" font-weight="700">Target ${escapeHtml(valueLabel(goal.targetValue, goal.targetUnit))}</text>
       <path d="${path}" fill="none" stroke="#276ef1" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
