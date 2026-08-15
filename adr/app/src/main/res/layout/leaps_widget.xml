@@ -8,7 +8,7 @@
       <TextView android:id="@+id/morning_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:text="Morning Pills ✓" android:textColor="#FFFFFF" android:textSize="8sp" android:textStyle="bold" />
     </LinearLayout>
     <LinearLayout android:id="@+id/evening_pills" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_marginStart="3dp" android:background="@drawable/widget_action_soft" android:gravity="center" android:orientation="vertical" android:padding="3dp">
-      <ImageView android:layout_width="23dp" android:layout_height="23dp" android:contentDescription="Magnesium taken" android:src="@drawable/ic_moon" android:tint="#FFFFFF" />
-      <TextView android:id="@+id/evening_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:text="Magnesium ✓" android:textColor="#FFFFFF" android:textSize="8sp" android:textStyle="bold" />
+      <ImageView android:layout_width="23dp" android:layout_height="23dp" android:contentDescription="Magnesium and Probiotic taken" android:src="@drawable/ic_moon" android:tint="#FFFFFF" />
+      <TextView android:id="@+id/evening_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:text="Night Pills ✓" android:textColor="#FFFFFF" android:textSize="8sp" android:textStyle="bold" />
     </LinearLayout>
 </LinearLayout>

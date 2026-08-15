@@ -147,7 +147,7 @@ GOALS = [
             "Vitamin D3: 1,000 IU at breakfast",
             "Omega-3: 1000 mg at breakfast",
             "Creatine monohydrate: 5 mg at breakfast",
-            "Magnesium glycinate: 200-300 mg elemental magnesium 60-90 min before bed",
+            "Magnesium glycinate and Probiotic before bed",
         ],
     },
     {
@@ -520,6 +520,16 @@ def init_db():
             columns = ", ".join(f"{column} = ?" for column in rules)
             con.execute(f"UPDATE goals SET {columns}, updated_at = ? WHERE id = ?", (*rules.values(), ts, goal_id))
         con.execute("UPDATE goals SET baseline_value = 0, baseline_label = 'Not set', updated_at = ?", (ts,))
+        old_supplement_plan = json.dumps([
+            "Vitamin D3: 1,000 IU at breakfast",
+            "Omega-3: 1000 mg at breakfast",
+            "Creatine monohydrate: 5 mg at breakfast",
+            "Magnesium glycinate: 200-300 mg elemental magnesium 60-90 min before bed",
+        ])
+        con.execute(
+            "UPDATE goals SET plan_json = ?, updated_at = ? WHERE id = 'supplements' AND plan_json = ?",
+            (json.dumps(next(goal["plan"] for goal in GOALS if goal["id"] == "supplements")), ts, old_supplement_plan),
+        )
         con.execute("DELETE FROM samples WHERE sample_date < ?", (PROJECT_START,))
         con.execute("DELETE FROM whoop_daily_metrics WHERE sample_date < ?", (PROJECT_START,))
         con.execute("DELETE FROM google_fit_daily_metrics WHERE sample_date < ?", (PROJECT_START,))
@@ -774,7 +784,7 @@ def quick_record(kind):
         value = current + 1
         sample_id = insert_sample("medium", today.isoformat(), value, f"Android widget: Medium post read ({int(value)} this week)", "android_widget")
         return {"goal": "medium", "value": value, "sampleId": sample_id}
-    supplement_part = {"pills": "morning", "supplements_morning": "morning", "supplements_evening": "evening"}.get(kind)
+    supplement_part = {"pills": "morning", "supplements_morning": "morning", "supplements_evening": "night"}.get(kind)
     if supplement_part:
         column = "morning_taken" if supplement_part == "morning" else "evening_taken"
         with db() as con:
