@@ -19,7 +19,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
-from zoneinfo import ZoneInfo
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    ZoneInfo = None
 
 
 ROOT = Path(__file__).resolve().parent
@@ -38,7 +41,7 @@ GOOGLE_AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
 GOOGLE_FIT_API = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate"
 GOOGLE_FIT_SCOPE = "https://www.googleapis.com/auth/fitness.body.read"
-LOCAL_TZ = ZoneInfo(os.environ.get("LEAPS_TIMEZONE", "Asia/Singapore"))
+LOCAL_TZ = ZoneInfo(os.environ.get("LEAPS_TIMEZONE", "Asia/Singapore")) if ZoneInfo else timezone(timedelta(hours=8), "Asia/Singapore")
 WEEKLY_WHOOP_GOALS = ("strain", "weekly_sleep", "weekly_recovery")
 
 
