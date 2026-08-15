@@ -1,1 +1,1 @@
-<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android" android:minWidth="180dp" android:minHeight="64dp" android:initialLayout="@layout/leaps_widget" android:resizeMode="horizontal|vertical" android:widgetCategory="home_screen" />
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android" android:minWidth="240dp" android:minHeight="104dp" android:initialLayout="@layout/leaps_widget" android:resizeMode="horizontal|vertical" android:widgetCategory="home_screen" />
