@@ -147,7 +147,8 @@ GOALS = [
             "Vitamin D3: 1,000 IU at breakfast",
             "Omega-3: 1000 mg at breakfast",
             "Creatine monohydrate: 5 mg at breakfast",
-            "Magnesium glycinate and Probiotic before bed",
+            "Magnesium glycinate: 200-300 mg elemental magnesium 60-90 min before bed",
+            "Probiotic 50 Billion CFU Enzyme Supplement",
         ],
     },
     {
@@ -526,9 +527,15 @@ def init_db():
             "Creatine monohydrate: 5 mg at breakfast",
             "Magnesium glycinate: 200-300 mg elemental magnesium 60-90 min before bed",
         ])
+        combined_supplement_plan = json.dumps([
+            "Vitamin D3: 1,000 IU at breakfast",
+            "Omega-3: 1000 mg at breakfast",
+            "Creatine monohydrate: 5 mg at breakfast",
+            "Magnesium glycinate and Probiotic before bed",
+        ])
         con.execute(
-            "UPDATE goals SET plan_json = ?, updated_at = ? WHERE id = 'supplements' AND plan_json = ?",
-            (json.dumps(next(goal["plan"] for goal in GOALS if goal["id"] == "supplements")), ts, old_supplement_plan),
+            "UPDATE goals SET plan_json = ?, updated_at = ? WHERE id = 'supplements' AND plan_json IN (?, ?)",
+            (json.dumps(next(goal["plan"] for goal in GOALS if goal["id"] == "supplements")), ts, old_supplement_plan, combined_supplement_plan),
         )
         con.execute("DELETE FROM samples WHERE sample_date < ?", (PROJECT_START,))
         con.execute("DELETE FROM whoop_daily_metrics WHERE sample_date < ?", (PROJECT_START,))
