@@ -1336,7 +1336,11 @@ class Handler(BaseHTTPRequestHandler):
         path = unmounted_path(parsed.path)
         try:
             if path and path.startswith("/api/journal/"):
-                entry = delete_journal(path.removeprefix("/api/journal/")); log_event("warning", "Tracker", "Journal entry deleted", {"goalId": entry["goal_id"]})
+                entry = delete_journal(path.removeprefix("/api/journal/"))
+                try:
+                    log_event("warning", "Tracker", "Journal entry deleted", {"goalId": entry["goal_id"]})
+                except Exception as log_error:
+                    print(f"Could not log journal deletion: {log_error}", file=sys.stderr)
                 return self.send_json({"ok": True, "goals": list_goals()})
             if not path or not path.startswith("/api/samples/"):
                 return self.send_error_json("Not found", 404)
@@ -1347,7 +1351,8 @@ class Handler(BaseHTTPRequestHandler):
             log_event("warning", "Tracker", "Progress sample deleted", {"goalId": sample["goalId"], "sampleId": sample_id, "date": sample["date"], "source": sample["source"]})
             return self.send_json({"ok": True, "goals": list_goals()})
         except Exception as exc:
-            log_event("error", "Tracker", "Sample deletion failed", {"path": path or "", "error": str(exc)})
+            event = "Journal deletion failed" if path and path.startswith("/api/journal/") else "Sample deletion failed"
+            log_event("error", "Tracker", event, {"path": path or "", "error": str(exc)})
             return self.send_error_json(str(exc), 400)
 
     def serve_static(self, path):
