@@ -554,6 +554,7 @@ document.querySelector("#refreshLogsBtn").addEventListener("click", loadLogs);
 document.querySelector("#resetSamplesBtn").addEventListener("click", resetAllSamples);
 document.querySelector("#resetLogsBtn").addEventListener("click", resetAllLogs);
 document.querySelector("#settingsBtn").addEventListener("click", () => setSettingsMode(!state.settingsOpen));
+document.querySelector("#settingsBackBtn").addEventListener("click", () => setSettingsMode(false));
 
 Promise.all([load(), loadWhoop(), loadGoodreads(), loadLogs()]).then(() => {
   const params = new URLSearchParams(location.search);
