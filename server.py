@@ -8,6 +8,8 @@ import re
 import secrets
 import sqlite3
 import sys
+import threading
+import time
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -17,6 +19,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parent
@@ -35,6 +38,8 @@ GOOGLE_AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
 GOOGLE_FIT_API = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate"
 GOOGLE_FIT_SCOPE = "https://www.googleapis.com/auth/fitness.body.read"
+LOCAL_TZ = ZoneInfo(os.environ.get("LEAPS_TIMEZONE", "Asia/Singapore"))
+WEEKLY_WHOOP_GOALS = ("strain", "weekly_sleep", "weekly_recovery")
 
 
 def mounted_path(path="/"):
@@ -310,6 +315,14 @@ GOAL_PRESENTATION = {
     "engagement_ring": ("Replace engagement ring", "Choose and replace the engagement ring together."),
     "kid_plan": ("Plan for our kid", "Create a shared plan for welcoming and supporting our future child."),
 }
+GOAL_RULES = {
+    "weight": {"cadence": "daily", "source": "WHOOP"},
+    "bmi": {"cadence": "daily", "source": "WHOOP calculated"},
+    "strain": {"cadence": "weekly", "source": "WHOOP"},
+    "weekly_sleep": {"cadence": "weekly", "source": "WHOOP"},
+    "weekly_recovery": {"cadence": "weekly", "source": "WHOOP"},
+    "supplements": {"target_value": 99, "cadence": "daily", "source": "Daily check-ins"},
+}
 GOALS.extend([
     {"id":"engagement_ring","category":"Me & Angel","title":"Replace engagement ring","target_value":100,"target_unit":"%","baseline_value":0,"baseline_label":"Not started","direction":"up","sample_type":"milestone","cadence":"monthly","source":"Manual","plan":["Set a budget","Choose a replacement together"]},
     {"id":"kid_plan","category":"Me & Angel","title":"Plan for our kid","target_value":100,"target_unit":"%","baseline_value":0,"baseline_label":"Not started","direction":"up","sample_type":"milestone","cadence":"monthly","source":"Manual","plan":["Discuss the timeline","Create a shared preparation plan"]},
@@ -402,6 +415,8 @@ CREATE TABLE IF NOT EXISTS activity_logs (
   detail_json TEXT NOT NULL DEFAULT '{}'
 );
 CREATE TABLE IF NOT EXISTS journal_entries (id TEXT PRIMARY KEY, goal_id TEXT NOT NULL REFERENCES goals(id) ON DELETE CASCADE, entry_date TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS supplement_checks (sample_date TEXT PRIMARY KEY, morning_taken INTEGER NOT NULL DEFAULT 0, evening_taken INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS scheduled_jobs (job_name TEXT NOT NULL, run_date TEXT NOT NULL, completed_at TEXT NOT NULL, PRIMARY KEY (job_name, run_date));
 CREATE INDEX IF NOT EXISTS idx_activity_logs_occurred_at ON activity_logs(occurred_at DESC);
 """
 
@@ -496,6 +511,9 @@ def init_db():
                     ts,
                 ),
             )
+        for goal_id, rules in GOAL_RULES.items():
+            columns = ", ".join(f"{column} = ?" for column in rules)
+            con.execute(f"UPDATE goals SET {columns}, updated_at = ? WHERE id = ?", (*rules.values(), ts, goal_id))
         con.execute("UPDATE goals SET archived = 1, updated_at = ? WHERE id = 'sleep_recovery'", (ts,))
 
 
@@ -544,6 +562,11 @@ def progress_for(goal, sample):
     return max(0, min(100, round(pct, 1)))
 
 
+def latest_series_sample(samples, series):
+    matches = [sample for sample in samples if sample.get("metadata", {}).get("series") == series]
+    return matches[-1] if matches else None
+
+
 def list_goals():
     with db() as con:
         goals = [row_goal(r) for r in con.execute("SELECT * FROM goals WHERE archived = 0 ORDER BY category, sort_order, id")]
@@ -567,10 +590,15 @@ def list_goals():
             journals.setdefault(r["goal_id"], []).append({"id": r["id"], "date": r["entry_date"], "body": r["body"]})
     for goal in goals:
         latest_sample = latest.get(goal["id"])
+        goal_samples = samples.get(goal["id"], [])
+        if goal["id"] in WEEKLY_WHOOP_GOALS:
+            latest_sample = latest_series_sample(goal_samples, "rolling_4_week") or latest_sample
+        elif goal["id"] == "supplements":
+            latest_sample = latest_series_sample(goal_samples, "rolling_30_day") or latest_sample
         goal["latestSample"] = latest_sample
         goal["currentValue"] = latest_sample["value"] if latest_sample else goal["baselineValue"]
         goal["progressPct"] = progress_for(goal, latest_sample)
-        goal["samples"] = samples.get(goal["id"], [])
+        goal["samples"] = goal_samples
         goal["journal"] = journals.get(goal["id"], [])
     return goals
 
@@ -704,6 +732,24 @@ def reset_all_samples():
     return count
 
 
+def refresh_supplement_performance(sample_day):
+    sample_day = require_date(sample_day)
+    window_start = (date.fromisoformat(sample_day) - timedelta(days=29)).isoformat()
+    with db() as con:
+        completed = con.execute(
+            "SELECT COUNT(*) AS n FROM supplement_checks WHERE sample_date BETWEEN ? AND ? AND morning_taken = 1 AND evening_taken = 1",
+            (window_start, sample_day),
+        ).fetchone()["n"]
+    percentage = round(completed * 100 / 30, 1)
+    insert_sample(
+        "supplements", sample_day, percentage,
+        f"30-day supplement completion through {sample_day}", "supplements",
+        {"series": "rolling_30_day", "windowStart": window_start, "windowEnd": sample_day, "completedDays": completed, "windowDays": 30},
+        f"supplements:rolling30:{sample_day}",
+    )
+    return percentage
+
+
 def quick_record(kind):
     today = date.today()
     if kind == "medium":
@@ -713,9 +759,18 @@ def quick_record(kind):
         value = current + 1
         sample_id = insert_sample("medium", today.isoformat(), value, f"Android widget: Medium post read ({int(value)} this week)", "android_widget")
         return {"goal": "medium", "value": value, "sampleId": sample_id}
-    if kind == "pills":
-        sample_id = insert_sample("supplements", today.isoformat(), 100, "Android widget: daily pills taken", "android_widget", external_key=f"android:pills:{today.isoformat()}")
-        return {"goal": "supplements", "value": 100, "sampleId": sample_id}
+    supplement_part = {"pills": "morning", "supplements_morning": "morning", "supplements_evening": "evening"}.get(kind)
+    if supplement_part:
+        column = "morning_taken" if supplement_part == "morning" else "evening_taken"
+        with db() as con:
+            con.execute(
+                f"INSERT INTO supplement_checks (sample_date, {column}, updated_at) VALUES (?, 1, ?) "
+                f"ON CONFLICT(sample_date) DO UPDATE SET {column} = 1, updated_at = excluded.updated_at",
+                (today.isoformat(), now_iso()),
+            )
+            check = con.execute("SELECT morning_taken, evening_taken FROM supplement_checks WHERE sample_date = ?", (today.isoformat(),)).fetchone()
+        value = refresh_supplement_performance(today.isoformat())
+        return {"goal": "supplements", "value": value, "sampleId": f"supplements:rolling30:{today.isoformat()}", "part": supplement_part, "dayComplete": bool(check["morning_taken"] and check["evening_taken"])}
     raise ValueError("Unknown quick record type")
 
 
@@ -1053,9 +1108,54 @@ def complete_whoop_oauth(code, state):
     persist_whoop_tokens(tokens)
 
 
-def sync_whoop(days=30):
+def record_whoop_weekly_performance(week_start, week_end):
+    with db() as con:
+        weekly = con.execute(
+            """SELECT
+                 SUM(CASE WHEN strain >= 15 THEN 1 ELSE 0 END) AS strain_days,
+                 COUNT(strain) AS strain_records,
+                 AVG(sleep_performance) AS sleep,
+                 COUNT(sleep_performance) AS sleep_records,
+                 AVG(recovery) AS recovery,
+                 COUNT(recovery) AS recovery_records
+               FROM whoop_daily_metrics WHERE sample_date BETWEEN ? AND ?""",
+            (week_start.isoformat(), week_end.isoformat()),
+        ).fetchone()
+    label = f"{week_start.isoformat()} to {week_end.isoformat()}"
+    definitions = (
+        ("strain", weekly["strain_days"] if weekly["strain_records"] else None, weekly["strain_records"], "days with strain 15+"),
+        ("weekly_sleep", weekly["sleep"], weekly["sleep_records"], "average sleep performance"),
+        ("weekly_recovery", weekly["recovery"], weekly["recovery_records"], "average recovery"),
+    )
+    recorded = 0
+    for goal_id, value, records, label_name in definitions:
+        if value is None:
+            continue
+        insert_sample(
+            goal_id, week_end.isoformat(), value, f"WHOOP {label_name} for {label}", "whoop",
+            {"series": "weekly", "weekStart": week_start.isoformat(), "weekEnd": week_end.isoformat(), "records": records},
+            f"whoop:{goal_id}:weekly:{week_end.isoformat()}",
+        )
+        with db() as con:
+            raw_rows = con.execute(
+                "SELECT * FROM samples WHERE goal_id = ? AND source = 'whoop' AND external_key LIKE ? ORDER BY sample_date DESC, created_at DESC LIMIT 4",
+                (goal_id, f"whoop:{goal_id}:weekly:%"),
+            ).fetchall()
+        rolling_values = [row["value"] for row in raw_rows]
+        if rolling_values:
+            rolling_value = round(sum(rolling_values) / len(rolling_values), 1)
+            insert_sample(
+                goal_id, week_end.isoformat(), rolling_value, f"4-week rolling average through {week_end.isoformat()}", "whoop",
+                {"series": "rolling_4_week", "weekEnd": week_end.isoformat(), "weeks": len(rolling_values)},
+                f"whoop:{goal_id}:rolling4:{week_end.isoformat()}",
+            )
+        recorded += 1
+    return recorded
+
+
+def sync_whoop(days=30, include_cycles=True, include_weekly=True):
     days = max(1, min(int(days), 365))
-    log_event("info", "WHOOP", "Sync started", {"days": days})
+    log_event("info", "WHOOP", "Sync started", {"days": days, "includeCycles": include_cycles, "includeWeekly": include_weekly})
     token = whoop_access_token()
     measurements = whoop_request(f"{WHOOP_API}/user/measurement/body", token)
     weight = (measurements or {}).get("weight_kilogram")
@@ -1070,6 +1170,12 @@ def sync_whoop(days=30):
             bmi = float(weight) / (float(height) * float(height))
             insert_sample("bmi", sample_date, bmi, "Calculated from WHOOP weight and height", "whoop", raw, f"whoop:body:{sample_date}:bmi")
             body_samples += 1
+    if not include_cycles:
+        detail = f"Synced {body_samples} WHOOP body measurement samples."
+        with db() as con:
+            con.execute("UPDATE connections SET last_sync_at = ?, last_sync_detail = ?, updated_at = ? WHERE provider = 'whoop'", (now_iso(), detail, now_iso()))
+        log_event("success", "WHOOP", "Body measurement sync completed", {"bodySamples": body_samples})
+        return {"synced": 0, "days": days, "detail": detail, "connection": connection_status()}
     start = datetime.now(timezone.utc).timestamp() - days * 86400
     url = WHOOP_API + "/cycle?" + urlencode({"limit": 25, "start": datetime.fromtimestamp(start, timezone.utc).isoformat()})
     cycles = []
@@ -1111,20 +1217,17 @@ def sync_whoop(days=30):
                 raw_json=excluded.raw_json, synced_at=excluded.synced_at""",
                 (cycle_id, cycle_date, strain, sleep_score, recovery_score, json.dumps(raw), now_iso()),
             )
-        if strain is not None:
-            insert_sample("strain", cycle_date, strain, "WHOOP daily strain", "whoop", raw, f"whoop:{cycle_id}:strain")
         synced += 1
+    weekly_samples = 0
     week_end = date.today() - timedelta(days=date.today().weekday() + 1)
     week_start = week_end - timedelta(days=6)
-    with db() as con:
-        weekly = con.execute("SELECT AVG(sleep_performance) AS sleep, AVG(recovery) AS recovery, COUNT(sleep_performance) AS sleep_records, COUNT(recovery) AS recovery_records FROM whoop_daily_metrics WHERE sample_date BETWEEN ? AND ?", (week_start.isoformat(), week_end.isoformat())).fetchone()
-    weekly_samples = 0
-    label = f"{week_start.isoformat()} to {week_end.isoformat()}"
-    for goal_id, field, records, name in (("weekly_sleep", "sleep", "sleep_records", "sleep"), ("weekly_recovery", "recovery", "recovery_records", "recovery")):
-        if weekly[field] is not None:
-            insert_sample(goal_id, week_end.isoformat(), weekly[field], f"WHOOP average {name} for {label}", "whoop", {"weekStart": week_start.isoformat(), "weekEnd": week_end.isoformat(), "records": weekly[records]}, f"whoop:{goal_id}:{week_end.isoformat()}")
-            weekly_samples += 1
-    detail = f"Synced {synced} scored WHOOP cycles and {body_samples} body measurement samples. Recorded {weekly_samples} weekly averages for {label}."
+    if include_weekly:
+        with db() as con:
+            con.execute("DELETE FROM samples WHERE goal_id IN ('strain', 'weekly_sleep', 'weekly_recovery') AND source = 'whoop' AND external_key NOT LIKE 'whoop:%:weekly:%' AND external_key NOT LIKE 'whoop:%:rolling4:%'")
+        weekly_samples = record_whoop_weekly_performance(week_start, week_end)
+    detail = f"Synced {synced} scored WHOOP cycles and {body_samples} body measurement samples."
+    if include_weekly:
+        detail += f" Recorded {weekly_samples} weekly performance samples for {week_start.isoformat()} to {week_end.isoformat()}."
     if missing_records:
         detail += f" Skipped {missing_records} unavailable sleep or recovery records."
     with db() as con:
@@ -1393,8 +1496,39 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
 
+def run_scheduled_job(job_name, run_date, callback):
+    with db() as con:
+        already_run = con.execute("SELECT 1 FROM scheduled_jobs WHERE job_name = ? AND run_date = ?", (job_name, run_date)).fetchone()
+    if already_run:
+        return
+    callback()
+    with db() as con:
+        con.execute("INSERT OR IGNORE INTO scheduled_jobs (job_name, run_date, completed_at) VALUES (?, ?, ?)", (job_name, run_date, now_iso()))
+
+
+def whoop_scheduler():
+    while True:
+        try:
+            local_now = datetime.now(LOCAL_TZ)
+            run_date = local_now.date().isoformat()
+            if local_now.hour >= 10:
+                run_scheduled_job("supplement_performance", run_date, lambda: refresh_supplement_performance(run_date))
+            connection = whoop_connection_row()
+            if not connection["access_token"] and not connection["refresh_token"]:
+                time.sleep(60)
+                continue
+            if local_now.weekday() == 0 and local_now.hour >= 8:
+                run_scheduled_job("whoop_weekly", run_date, lambda: sync_whoop(30, include_cycles=True, include_weekly=True))
+            if local_now.hour >= 10:
+                run_scheduled_job("whoop_body", run_date, lambda: sync_whoop(1, include_cycles=False, include_weekly=False))
+        except Exception as exc:
+            log_event("error", "WHOOP", "Scheduled sync failed", {"error": str(exc)})
+        time.sleep(60)
+
+
 def main():
     init_db()
+    threading.Thread(target=whoop_scheduler, name="whoop-scheduler", daemon=True).start()
     print(f"Leaps running on http://127.0.0.1:{PORT}{mounted_path('/')}")
     print(f"SQLite database: {DB_PATH}")
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

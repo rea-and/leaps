@@ -155,8 +155,8 @@ async function reorderGoals(event, targetGoal, targetNode) {
   }
 }
 
-function makeTrend(goal) {
-  const points = goal.samples.map((sample) => ({
+function makeTrend(goal, samples = goal.samples) {
+  const points = samples.map((sample) => ({
     date: sample.date,
     value: sample.value,
     label: sample.note.match(/for (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/)?.slice(1).join(" to ") || sample.date,
@@ -195,6 +195,21 @@ function renderDetail() {
     detail.innerHTML = "<p>No target selected.</p>";
     return;
   }
+  const weeklyWhoopGoal = ["strain", "weekly_sleep", "weekly_recovery"].includes(goal.id);
+  const automaticGoal = weeklyWhoopGoal || ["weight", "bmi", "supplements"].includes(goal.id);
+  const weeklySamples = goal.samples.filter((sample) => sample.metadata?.series === "weekly");
+  const rollingSamples = goal.samples.filter((sample) => sample.metadata?.series === "rolling_4_week");
+  const displaySamples = weeklyWhoopGoal ? weeklySamples : goal.id === "supplements" ? goal.samples.filter((sample) => sample.metadata?.series === "rolling_30_day") : goal.samples;
+  const trendMarkup = weeklyWhoopGoal
+    ? `<h2>Weekly trend</h2><div class="trend">${makeTrend(goal, weeklySamples)}</div><h2>4-week rolling average</h2><div class="trend">${makeTrend(goal, rollingSamples)}</div>`
+    : `<div class="trend">${makeTrend(goal, displaySamples)}</div>`;
+  const sampleForm = automaticGoal ? "" : `
+    <form class="sample-form" id="sampleForm">
+      <label>Date<input id="sampleDate" type="date" value="${new Date().toISOString().slice(0, 10)}"></label>
+      <label>Value<input id="sampleValue" type="number" step="0.01" required placeholder="${goal.targetUnit}"></label>
+      <label>Note<input id="sampleNote" type="text" placeholder="Optional context"></label>
+      <button type="submit">Add progress</button>
+    </form>`;
   detail.innerHTML = `
     <div class="detail-head">
       <p class="eyebrow">${escapeHtml(goal.category)}</p>
@@ -219,21 +234,14 @@ function renderDetail() {
       <div class="mini-stat"><span>Progress</span><strong>${goal.progressPct}%</strong></div>
     </div>
     <div class="detail-divider" aria-hidden="true"></div>
-    <div class="trend">${makeTrend(goal)}</div>
-    <div class="detail-divider" aria-hidden="true"></div>
-    <form class="sample-form" id="sampleForm">
-      <label>Date<input id="sampleDate" type="date" value="${new Date().toISOString().slice(0, 10)}"></label>
-      <label>Value<input id="sampleValue" type="number" step="0.01" required placeholder="${goal.targetUnit}"></label>
-      <label>Note<input id="sampleNote" type="text" placeholder="Optional context"></label>
-      <button type="submit">Add progress</button>
-    </form>
-    <div class="detail-divider" aria-hidden="true"></div>
+    ${trendMarkup}
+    ${sampleForm ? '<div class="detail-divider" aria-hidden="true"></div>' + sampleForm + '<div class="detail-divider" aria-hidden="true"></div>' : '<div class="detail-divider" aria-hidden="true"></div>'}
     <h2>Journal</h2><form id="journalForm" class="journal-form"><textarea id="journalBody" required placeholder="Add a progress note"></textarea><button type="submit">Add journal entry</button></form><ul class="journal-list">${(goal.journal || []).map((entry) => `<li><span><strong>${escapeHtml(entry.date)}</strong>: ${escapeHtml(entry.body)}</span><button type="button" class="sample-action sample-delete" data-journal="${escapeHtml(entry.id)}">Delete</button></li>`).join("") || "<li>No journal entries yet.</li>"}</ul>
     <div class="detail-divider" aria-hidden="true"></div>
     <p class="sample-message" role="status">${escapeHtml(state.sampleMessage)}</p>
     <h2>Recent Samples</h2>
     <ul class="sample-list">${
-      goal.samples
+      displaySamples
         .slice()
         .reverse()
         .slice(0, 8)
@@ -249,15 +257,15 @@ function renderDetail() {
           </li>` : `
           <li class="sample-row">
             <div class="sample-copy">${escapeHtml(s.date)}: ${escapeHtml(valueLabel(s.value, goal.targetUnit))} - ${escapeHtml(s.source)}${s.note ? ` - ${escapeHtml(s.note)}` : ""}</div>
-            <div class="sample-actions">
+            ${automaticGoal ? "" : `<div class="sample-actions">
               <button type="button" class="sample-action" data-edit-sample="${escapeHtml(s.id)}">Edit</button>
               <button type="button" class="sample-action sample-delete" data-delete-sample="${escapeHtml(s.id)}">Delete</button>
-            </div>
+            </div>`}
           </li>`)
         .join("") || "<li>No samples yet.</li>"
     }</ul>
   `;
-  document.querySelector("#sampleForm").addEventListener("submit", saveSample);
+  detail.querySelector("#sampleForm")?.addEventListener("submit", saveSample);
   detail.querySelector("#planForm").addEventListener("submit", savePlan);
   detail.querySelector("#journalForm").addEventListener("submit", saveJournal);
   detail.querySelectorAll("[data-journal]").forEach((button) => button.addEventListener("click", () => deleteJournal(button.dataset.journal)));
