@@ -306,7 +306,7 @@ GOAL_PRESENTATION = {
     "bmi": ("Reduce BMI to 24", "Bring body mass index down to 24 through steady weight and health habits."),
     "strain": ("Strain 15+, 6 days a week", "Reach a daily WHOOP strain of at least 15 on six days each week."),
     "supplements": ("Never miss supplements", "Complete every planned daily supplement intake."),
-    "weekly_recovery": ("Weekly recovery 80+", "Maintain an average WHOOP recovery score of 80% or higher each completed week."),
+    "weekly_recovery": ("Weekly recovery performance 80+", "Maintain an average WHOOP recovery score of 80% or higher each completed week."),
     "weekly_sleep": ("Weekly sleep performance 80+", "Maintain an average WHOOP sleep performance of 80% or higher each completed week."),
     "weight": ("Weight 79kg", "Reach and maintain a body weight of 79 kg."),
     "books": ("Read 10 books", "Finish ten new books before the end of the year."),
