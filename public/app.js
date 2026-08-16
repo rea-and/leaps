@@ -114,7 +114,8 @@ function renderGoals() {
     node.querySelector("h3").textContent = goal.title;
     node.querySelector(".goal-description").textContent = goal.description;
     node.querySelector(".current").textContent = valueLabel(goal.currentValue, goal.targetUnit);
-    node.querySelector(".target").textContent = `Target ${valueLabel(goal.targetValue, goal.targetUnit)}`;
+    const currentPrefix = goal.currentLabel === "4-week average" ? "4-week avg - " : "";
+    node.querySelector(".target").textContent = `${currentPrefix}Target ${valueLabel(goal.targetValue, goal.targetUnit)}`;
     node.querySelector(".bar span").style.width = `${goal.progressPct ?? 0}%`;
     node.addEventListener("click", () => {
       if (suppressGoalClick) return;
@@ -246,7 +247,7 @@ function renderDetail() {
       ${goal.baselineConfigured ? '<button id="clearBaseline" type="button" class="sample-action sample-delete">Clear</button>' : ""}
     </form>
     <div class="detail-grid">
-      <div class="mini-stat"><span>Current</span><strong>${valueLabel(goal.currentValue, goal.targetUnit)}</strong></div>
+      <div class="mini-stat"><span>${escapeHtml(goal.currentLabel || "Current")}</span><strong>${valueLabel(goal.currentValue, goal.targetUnit)}</strong></div>
       <div class="mini-stat"><span>Target</span><strong>${valueLabel(goal.targetValue, goal.targetUnit)}</strong></div>
       <div class="mini-stat"><span>Baseline</span><strong>${valueLabel(goal.baselineValue, goal.targetUnit)}</strong></div>
       <div class="mini-stat"><span>Progress</span><strong>${goal.progressPct === null ? "No data" : `${goal.progressPct}%`}</strong></div>

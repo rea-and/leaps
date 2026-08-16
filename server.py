@@ -646,8 +646,10 @@ def list_goals():
             performance_samples = [sample for sample in goal_samples if sample.get("metadata", {}).get("series") == "rolling_30_day"]
         if goal["id"] in SOCIAL_ROLLING_PERIOD_DAYS:
             latest_sample = social_rolling_sample(goal["id"], goal_samples)
+            goal["currentLabel"] = "4-week average"
         else:
             latest_sample = performance_samples[-1] if performance_samples else None
+            goal["currentLabel"] = "Current"
         goal["latestSample"] = latest_sample
         goal["currentValue"] = latest_sample["value"] if latest_sample else None
         if not goal["baselineConfigured"]:
