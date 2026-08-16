@@ -818,6 +818,22 @@ def quick_record(kind):
             check = con.execute("SELECT morning_taken, evening_taken FROM supplement_checks WHERE sample_date = ?", (today.isoformat(),)).fetchone()
         value = refresh_supplement_performance(today.isoformat())
         return {"goal": "supplements", "value": value, "sampleId": f"supplements:rolling30:{today.isoformat()}", "part": supplement_part, "dayComplete": bool(check["morning_taken"] and check["evening_taken"])}
+    increment_specs = {
+        "ultralearn": ("ultralearn", PROJECT_START_DATE, "UltraLearn course completed"),
+        "ams_friends": ("ams_friends", PROJECT_START_DATE + timedelta(days=((today - PROJECT_START_DATE).days // 14) * 14), "Amsterdam friends connection"),
+        "family_calls": ("family_calls", today - timedelta(days=today.weekday()), "Family call"),
+        "sg_outings": ("sg_outings", today.replace(day=1), "Singapore friends outing"),
+    }
+    if kind in increment_specs:
+        goal_id, period_start, event_name = increment_specs[kind]
+        with db() as con:
+            current = con.execute(
+                "SELECT MAX(value) AS value FROM samples WHERE goal_id = ? AND sample_date BETWEEN ? AND ?",
+                (goal_id, period_start.isoformat(), today.isoformat()),
+            ).fetchone()["value"] or 0
+        value = current + 1
+        sample_id = insert_sample(goal_id, today.isoformat(), value, f"Android widget: {event_name} ({int(value)} this period)", "android_widget")
+        return {"goal": goal_id, "value": value, "sampleId": sample_id, "periodStart": period_start.isoformat()}
     raise ValueError("Unknown quick record type")
 
 

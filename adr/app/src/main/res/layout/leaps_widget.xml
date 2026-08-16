@@ -1,4 +1,5 @@
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:gravity="center" android:orientation="horizontal" android:padding="2dp">
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:padding="2dp">
+  <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="horizontal">
     <LinearLayout android:id="@+id/medium" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="@drawable/widget_action_soft" android:gravity="center" android:orientation="vertical" android:padding="3dp">
       <ImageView android:layout_width="23dp" android:layout_height="23dp" android:contentDescription="Medium read" android:src="@drawable/ic_article" android:tint="#FFFFFF" />
       <TextView android:id="@+id/medium_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:text="Article ✓" android:textColor="#FFFFFF" android:textSize="8sp" android:textStyle="bold" />
@@ -11,4 +12,23 @@
       <ImageView android:layout_width="23dp" android:layout_height="23dp" android:contentDescription="Magnesium and Probiotic taken" android:src="@drawable/ic_moon" android:tint="#FFFFFF" />
       <TextView android:id="@+id/evening_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:text="Night Pills ✓" android:textColor="#FFFFFF" android:textSize="8sp" android:textStyle="bold" />
     </LinearLayout>
+    <LinearLayout android:id="@+id/ultralearn" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_marginStart="3dp" android:background="@drawable/widget_action_soft" android:gravity="center" android:orientation="vertical" android:padding="3dp">
+      <ImageView android:layout_width="23dp" android:layout_height="23dp" android:contentDescription="UltraLearn course completed" android:src="@drawable/ic_article" android:tint="#FFFFFF" />
+      <TextView android:id="@+id/ultralearn_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:text="UltraLearn" android:textColor="#FFFFFF" android:textSize="8sp" android:textStyle="bold" />
+    </LinearLayout>
+  </LinearLayout>
+  <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_marginTop="3dp" android:layout_weight="1" android:orientation="horizontal">
+    <LinearLayout android:id="@+id/ams_friends" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="@drawable/widget_action_soft" android:gravity="center" android:orientation="vertical" android:padding="3dp">
+      <ImageView android:layout_width="23dp" android:layout_height="23dp" android:contentDescription="Amsterdam friends connection" android:src="@drawable/ic_people" android:tint="#FFFFFF" />
+      <TextView android:id="@+id/ams_friends_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:text="Ams Friends" android:textColor="#FFFFFF" android:textSize="8sp" android:textStyle="bold" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/family_calls" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_marginStart="3dp" android:background="@drawable/widget_action_soft" android:gravity="center" android:orientation="vertical" android:padding="3dp">
+      <ImageView android:layout_width="23dp" android:layout_height="23dp" android:contentDescription="Family call" android:src="@drawable/ic_phone" android:tint="#FFFFFF" />
+      <TextView android:id="@+id/family_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:text="Family" android:textColor="#FFFFFF" android:textSize="8sp" android:textStyle="bold" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/sg_outings" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:layout_marginStart="3dp" android:background="@drawable/widget_action_soft" android:gravity="center" android:orientation="vertical" android:padding="3dp">
+      <ImageView android:layout_width="23dp" android:layout_height="23dp" android:contentDescription="Singapore friends outing" android:src="@drawable/ic_pin" android:tint="#FFFFFF" />
+      <TextView android:id="@+id/sg_outing_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:text="SG Outing" android:textColor="#FFFFFF" android:textSize="8sp" android:textStyle="bold" />
+    </LinearLayout>
+  </LinearLayout>
 </LinearLayout>
