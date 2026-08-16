@@ -350,6 +350,7 @@ CREATE TABLE IF NOT EXISTS goals (
   source TEXT NOT NULL,
   plan_json TEXT NOT NULL,
   sort_order INTEGER NOT NULL DEFAULT 0,
+  baseline_configured INTEGER NOT NULL DEFAULT 0,
   archived INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -479,6 +480,9 @@ def init_db():
             existing_goals = con.execute("SELECT id FROM goals WHERE archived = 0 ORDER BY category, id").fetchall()
             for position, row in enumerate(existing_goals):
                 con.execute("UPDATE goals SET sort_order = ? WHERE id = ?", (position, row["id"]))
+        if "baseline_configured" not in goal_columns:
+            con.execute("ALTER TABLE goals ADD COLUMN baseline_configured INTEGER NOT NULL DEFAULT 0")
+            con.execute("UPDATE goals SET baseline_value = 0, baseline_label = 'Not set', baseline_configured = 0")
         con.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_samples_goal_external_key "
             "ON samples(goal_id, external_key) WHERE external_key IS NOT NULL"
@@ -518,7 +522,7 @@ def init_db():
         for goal_id, rules in GOAL_RULES.items():
             columns = ", ".join(f"{column} = ?" for column in rules)
             con.execute(f"UPDATE goals SET {columns}, updated_at = ? WHERE id = ?", (*rules.values(), ts, goal_id))
-        con.execute("UPDATE goals SET baseline_value = 0, baseline_label = 'Not set', updated_at = ?", (ts,))
+        con.execute("UPDATE goals SET baseline_value = 0, baseline_label = 'Not set', updated_at = ? WHERE baseline_configured = 0", (ts,))
         old_supplement_plan = json.dumps([
             "Vitamin D3: 1,000 IU at breakfast",
             "Omega-3: 1000 mg at breakfast",
@@ -553,6 +557,7 @@ def row_goal(row):
         "targetUnit": row["target_unit"],
         "baselineValue": row["baseline_value"],
         "baselineLabel": row["baseline_label"],
+        "baselineConfigured": bool(row["baseline_configured"]),
         "direction": row["direction"],
         "sampleType": row["sample_type"],
         "cadence": row["cadence"],
@@ -574,15 +579,15 @@ def row_sample(row):
     }
 
 
-def progress_for(goal, sample, first_sample):
-    if not sample:
+def progress_for(goal, sample):
+    if not sample or not goal["baselineConfigured"]:
         return None
     current = sample["value"]
     target = goal["targetValue"]
+    start = goal["baselineValue"]
     if goal["direction"] != "down":
-        pct = (current / target) * 100 if target else 100
+        pct = ((current - start) / (target - start)) * 100 if start != target else (100 if current >= target else 0)
     else:
-        start = first_sample["value"]
         pct = ((start - current) / (start - target)) * 100 if start != target else (100 if current <= target else 0)
     return max(0, min(100, round(pct, 1)))
 
@@ -609,12 +614,12 @@ def list_goals():
         elif goal["id"] == "supplements":
             performance_samples = [sample for sample in goal_samples if sample.get("metadata", {}).get("series") == "rolling_30_day"]
         latest_sample = performance_samples[-1] if performance_samples else None
-        first_sample = performance_samples[0] if performance_samples else None
         goal["latestSample"] = latest_sample
         goal["currentValue"] = latest_sample["value"] if latest_sample else None
-        goal["baselineValue"] = first_sample["value"] if first_sample else None
-        goal["baselineLabel"] = f"First record {first_sample['date']}" if first_sample else "Not set"
-        goal["progressPct"] = progress_for(goal, latest_sample, first_sample)
+        if not goal["baselineConfigured"]:
+            goal["baselineValue"] = None
+            goal["baselineLabel"] = "Not set"
+        goal["progressPct"] = progress_for(goal, latest_sample)
         goal["samples"] = goal_samples
         goal["journal"] = journals.get(goal["id"], [])
     return goals
@@ -708,6 +713,18 @@ def update_goal_plan(goal_id, plan):
             raise ValueError("Goal not found")
         con.execute("UPDATE goals SET plan_json = ?, updated_at = ? WHERE id = ?", (json.dumps(cleaned), now_iso(), goal_id))
     return cleaned
+
+
+def update_goal_baseline(goal_id, baseline_value):
+    with db() as con:
+        if not con.execute("SELECT 1 FROM goals WHERE id = ?", (goal_id,)).fetchone():
+            raise ValueError("Goal not found")
+        if baseline_value is None or str(baseline_value).strip() == "":
+            con.execute("UPDATE goals SET baseline_value = 0, baseline_label = 'Not set', baseline_configured = 0, updated_at = ? WHERE id = ?", (now_iso(), goal_id))
+            return None
+        value = clean_float(baseline_value)
+        con.execute("UPDATE goals SET baseline_value = ?, baseline_label = 'Configured baseline', baseline_configured = 1, updated_at = ? WHERE id = ?", (value, now_iso(), goal_id))
+    return value
 
 
 def update_goal_order(category, goal_ids):
@@ -1473,6 +1490,14 @@ class Handler(BaseHTTPRequestHandler):
                 body = parse_body(self)
                 update_goal_order(body.get("category"), body.get("goalIds"))
                 log_event("success", "Tracker", "Target order updated", {"category": body.get("category"), "count": len(body.get("goalIds", []))})
+                return self.send_json({"ok": True, "goals": list_goals()})
+            if path and path.startswith("/api/goals/") and path.endswith("/baseline"):
+                goal_id = path[len("/api/goals/"):-len("/baseline")]
+                body = parse_body(self)
+                if not goal_id or "/" in goal_id:
+                    return self.send_error_json("Invalid baseline update", 400)
+                value = update_goal_baseline(goal_id, body.get("baselineValue"))
+                log_event("success", "Tracker", "Target baseline updated", {"goalId": goal_id, "configured": value is not None})
                 return self.send_json({"ok": True, "goals": list_goals()})
             if path and path.startswith("/api/goals/") and path.endswith("/plan"):
                 goal_id = path[len("/api/goals/"):-len("/plan")]

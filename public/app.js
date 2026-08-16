@@ -232,6 +232,12 @@ function renderDetail() {
       <div class="plan-actions"><button type="button" class="sample-action" id="addPlanPoint">Add point</button><button type="submit" class="sample-action">Save plan</button></div>
     </form>
     <div class="detail-divider" aria-hidden="true"></div>
+    <h2>Baseline</h2>
+    <form id="baselineForm" class="baseline-form">
+      <label>Value<input id="baselineValue" type="number" step="0.01" value="${goal.baselineConfigured ? escapeHtml(goal.baselineValue) : ""}" placeholder="${goal.targetUnit}" aria-label="Baseline value"></label>
+      <button type="submit" class="sample-action">${goal.baselineConfigured ? "Update baseline" : "Set baseline"}</button>
+      ${goal.baselineConfigured ? '<button id="clearBaseline" type="button" class="sample-action sample-delete">Clear</button>' : ""}
+    </form>
     <div class="detail-grid">
       <div class="mini-stat"><span>Current</span><strong>${valueLabel(goal.currentValue, goal.targetUnit)}</strong></div>
       <div class="mini-stat"><span>Target</span><strong>${valueLabel(goal.targetValue, goal.targetUnit)}</strong></div>
@@ -272,6 +278,8 @@ function renderDetail() {
   `;
   detail.querySelector("#sampleForm")?.addEventListener("submit", saveSample);
   detail.querySelector("#planForm").addEventListener("submit", savePlan);
+  detail.querySelector("#baselineForm").addEventListener("submit", saveBaseline);
+  detail.querySelector("#clearBaseline")?.addEventListener("click", clearBaseline);
   detail.querySelector("#journalForm").addEventListener("submit", saveJournal);
   detail.querySelectorAll("[data-journal]").forEach((button) => button.addEventListener("click", () => deleteJournal(button.dataset.journal)));
   detail.querySelector("#addPlanPoint").addEventListener("click", () => {
@@ -295,6 +303,28 @@ function renderDetail() {
 }
 
 function bindPlanDelete(button) { button.addEventListener("click", () => button.closest(".plan-point").remove()); }
+
+async function saveBaseline(event) {
+  event.preventDefault();
+  const goal = state.goals.find((item) => item.id === state.selectedId);
+  try {
+    const result = await api(`/api/goals/${goal.id}/baseline`, { method: "PUT", body: JSON.stringify({ baselineValue: event.currentTarget.querySelector("#baselineValue").value }) });
+    state.goals = result.goals;
+    state.sampleMessage = "Baseline saved.";
+    render();
+  } catch (error) { state.sampleMessage = error.message; renderDetail(); }
+}
+
+async function clearBaseline() {
+  const goal = state.goals.find((item) => item.id === state.selectedId);
+  if (!window.confirm("Clear this target baseline?")) return;
+  try {
+    const result = await api(`/api/goals/${goal.id}/baseline`, { method: "PUT", body: JSON.stringify({ baselineValue: null }) });
+    state.goals = result.goals;
+    state.sampleMessage = "Baseline cleared.";
+    render();
+  } catch (error) { state.sampleMessage = error.message; renderDetail(); }
+}
 
 async function savePlan(event) {
   event.preventDefault();
