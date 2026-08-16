@@ -868,6 +868,17 @@ def quick_record(kind):
     raise ValueError("Unknown quick record type")
 
 
+def quick_record_status(kind, check_date=None):
+    if kind != "medium":
+        raise ValueError("Unknown quick record status")
+    check_date = check_date or datetime.now(LOCAL_TZ).date().isoformat()
+    with db() as con:
+        recorded = con.execute(
+            "SELECT 1 FROM samples WHERE goal_id = 'medium' AND sample_date = ? LIMIT 1", (check_date,)
+        ).fetchone() is not None
+    return {"kind": kind, "date": check_date, "recorded": recorded}
+
+
 def connection_status():
     with db() as con:
         row = con.execute("SELECT * FROM connections WHERE provider = 'whoop'").fetchone()
@@ -1437,6 +1448,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_error_json("Not found", 404)
         if path == "/api/goals":
             return self.send_json({"goals": list_goals()})
+        if path == "/api/quick-record-status":
+            params = parse_qs(parsed.query)
+            try:
+                return self.send_json(quick_record_status(params.get("kind", [""])[0]))
+            except ValueError as exc:
+                return self.send_error_json(str(exc), 400)
         if path == "/api/health":
             return self.send_json({"ok": True, "database": str(DB_PATH)})
         if path == "/api/export":

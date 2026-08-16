@@ -6,7 +6,7 @@
   <application android:allowBackup="true" android:label="Leaps Quick Record" android:theme="@style/AppTheme" android:usesCleartextTraffic="true">
     <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
     <receiver android:name=".LeapsWidget" android:exported="true" android:label="Leaps quick record"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/leaps_widget_info"/></receiver>
-    <receiver android:name=".PillReminderReceiver" android:exported="false"><intent-filter><action android:name="net.carlevato.leapsquick.MORNING_REMINDER"/><action android:name="net.carlevato.leapsquick.NIGHT_REMINDER"/></intent-filter></receiver>
+    <receiver android:name=".PillReminderReceiver" android:exported="false"><intent-filter><action android:name="net.carlevato.leapsquick.MORNING_REMINDER"/><action android:name="net.carlevato.leapsquick.NIGHT_REMINDER"/><action android:name="net.carlevato.leapsquick.MEDIUM_REMINDER"/></intent-filter></receiver>
     <receiver android:name=".PillReminderBootReceiver" android:exported="false"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/><action android:name="android.intent.action.MY_PACKAGE_REPLACED"/></intent-filter></receiver>
   </application>
 </manifest>
