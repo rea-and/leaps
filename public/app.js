@@ -16,6 +16,7 @@ const basePath = new URL(document.baseURI).pathname.replace(/\/$/, "");
 const categoryOrder = ["Wellness", "Personal Growth", "Me & Angel", "Social Growth", "Personal Finances"];
 let draggedGoal = null;
 let suppressGoalClick = false;
+let goalsLoading = false;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -576,10 +577,23 @@ function render() {
 }
 
 async function load() {
-  const data = await api("/api/goals");
-  state.goals = data.goals;
-  if (!state.selectedId) state.selectedId = state.goals[0]?.id;
-  render();
+  if (goalsLoading) return;
+  goalsLoading = true;
+  try {
+    const data = await api("/api/goals");
+    state.goals = data.goals;
+    if (!state.selectedId) state.selectedId = state.goals[0]?.id;
+    render();
+  } finally {
+    goalsLoading = false;
+  }
+}
+
+function refreshDashboardInBackground() {
+  if (document.hidden || state.settingsOpen) return;
+  const focused = document.activeElement;
+  if (focused && ["INPUT", "TEXTAREA", "SELECT"].includes(focused.tagName)) return;
+  load().catch(() => {});
 }
 
 document.querySelector("#search").addEventListener("input", (event) => {
@@ -596,6 +610,11 @@ document.querySelector("#resetSamplesBtn").addEventListener("click", resetAllSam
 document.querySelector("#resetLogsBtn").addEventListener("click", resetAllLogs);
 document.querySelector("#settingsBtn").addEventListener("click", () => setSettingsMode(!state.settingsOpen));
 document.querySelector("#settingsBackBtn").addEventListener("click", () => setSettingsMode(false));
+window.addEventListener("focus", refreshDashboardInBackground);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshDashboardInBackground();
+});
+window.setInterval(refreshDashboardInBackground, 20_000);
 
 Promise.all([load(), loadWhoop(), loadGoodreads(), loadLogs()]).then(() => {
   const params = new URLSearchParams(location.search);
