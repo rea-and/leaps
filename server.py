@@ -318,7 +318,6 @@ GOAL_PRESENTATION = {
     "family_calls": ("Call family weekly", "Make at least one phone call with a family member every week."),
     "equity_reallocation": ("Complete assets reallocation", "Finish the planned reallocation of equity and other assets."),
     "finance_tracker": ("Update Finance Tracker", "Keep the finance tracker and monthly burn-rate automation current."),
-    "engagement_ring": ("Replace engagement ring", "Choose and replace the engagement ring together."),
     "kid_plan": ("Plan for our kid", "Create a shared plan for welcoming and supporting our future child."),
 }
 GOAL_RULES = {
@@ -330,7 +329,6 @@ GOAL_RULES = {
     "supplements": {"target_value": 99, "cadence": "daily", "source": "Daily check-ins"},
 }
 GOALS.extend([
-    {"id":"engagement_ring","category":"Me & Angel","title":"Replace engagement ring","target_value":100,"target_unit":"%","baseline_value":0,"baseline_label":"Not started","direction":"up","sample_type":"milestone","cadence":"monthly","source":"Manual","plan":["Set a budget","Choose a replacement together"]},
     {"id":"kid_plan","category":"Me & Angel","title":"Plan for our kid","target_value":100,"target_unit":"%","baseline_value":0,"baseline_label":"Not started","direction":"up","sample_type":"milestone","cadence":"monthly","source":"Manual","plan":["Discuss the timeline","Create a shared preparation plan"]},
 ])
 
@@ -542,7 +540,7 @@ def init_db():
         con.execute("DELETE FROM google_fit_daily_metrics WHERE sample_date < ?", (PROJECT_START,))
         con.execute("DELETE FROM goodreads_read_books WHERE read_date < ?", (PROJECT_START,))
         con.execute("DELETE FROM supplement_checks WHERE sample_date < ?", (PROJECT_START,))
-        con.execute("UPDATE goals SET archived = 1, updated_at = ? WHERE id = 'sleep_recovery'", (ts,))
+        con.execute("UPDATE goals SET archived = 1, updated_at = ? WHERE id IN ('sleep_recovery', 'engagement_ring')", (ts,))
 
 
 def row_goal(row):
