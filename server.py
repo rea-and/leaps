@@ -43,11 +43,7 @@ GOOGLE_FIT_API = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggrega
 GOOGLE_FIT_SCOPE = "https://www.googleapis.com/auth/fitness.body.read"
 LOCAL_TZ = ZoneInfo(os.environ.get("LEAPS_TIMEZONE", "Asia/Singapore")) if ZoneInfo else timezone(timedelta(hours=8), "Asia/Singapore")
 WEEKLY_WHOOP_GOALS = ("strain", "weekly_sleep", "weekly_recovery")
-SOCIAL_ROLLING_PERIOD_DAYS = {
-    "family_calls": 7,
-    "ams_friends": 14,
-    "sg_outings": 28,
-}
+SOCIAL_ROLLING_GOALS = ("family_calls", "ams_friends", "sg_outings")
 PROJECT_START_DATE = date(2026, 8, 1)
 PROJECT_START = PROJECT_START_DATE.isoformat()
 
@@ -603,16 +599,15 @@ def latest_series_sample(samples, series):
 
 
 def social_rolling_sample(goal_id, samples, as_of=None):
-    """Average completed social actions across the available trailing four weeks."""
+    """Average weekly social actions across the available trailing four weeks."""
     as_of = as_of or datetime.now(LOCAL_TZ).date()
     window_start = max(PROJECT_START_DATE, as_of - timedelta(days=27))
-    period_days = SOCIAL_ROLLING_PERIOD_DAYS[goal_id]
     action_days = [date.fromisoformat(sample["date"]) for sample in samples
                    if window_start <= date.fromisoformat(sample["date"]) <= as_of]
     values = []
     period_start = window_start
     while period_start <= as_of:
-        period_end = min(period_start + timedelta(days=period_days - 1), as_of)
+        period_end = min(period_start + timedelta(days=6), as_of)
         values.append(sum(period_start <= action_day <= period_end for action_day in action_days))
         period_start = period_end + timedelta(days=1)
     value = round(sum(values) / len(values), 1) if values else 0
@@ -644,7 +639,7 @@ def list_goals():
             performance_samples = [sample for sample in goal_samples if sample.get("metadata", {}).get("series") == "rolling_4_week"]
         elif goal["id"] == "supplements":
             performance_samples = [sample for sample in goal_samples if sample.get("metadata", {}).get("series") == "rolling_30_day"]
-        if goal["id"] in SOCIAL_ROLLING_PERIOD_DAYS:
+        if goal["id"] in SOCIAL_ROLLING_GOALS:
             latest_sample = social_rolling_sample(goal["id"], goal_samples)
             goal["currentLabel"] = "4-week average"
         else:
