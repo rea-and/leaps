@@ -104,6 +104,12 @@ function renderGoals() {
     node.classList.toggle("selected", goal.id === state.selectedId);
     node.querySelector(".category").textContent = goal.category;
     node.querySelector(".source").textContent = goal.source;
+    if (!goal.baselineConfigured) {
+      const tag = document.createElement("span");
+      tag.className = "baseline-warning";
+      tag.textContent = "Baseline needed";
+      node.querySelector(".goal-card-head").insertBefore(tag, node.querySelector(".source"));
+    }
     node.querySelector("h3").textContent = goal.title;
     node.querySelector(".goal-description").textContent = goal.description;
     node.querySelector(".current").textContent = valueLabel(goal.currentValue, goal.targetUnit);
