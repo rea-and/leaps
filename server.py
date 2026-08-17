@@ -305,7 +305,7 @@ GOALS = [
 
 GOAL_PRESENTATION = {
     "bmi": ("Reduce BMI to 24", "Bring body mass index down to 24 through steady weight and health habits."),
-    "strain": ("Strain 15+, 6 days a week", "Reach a daily WHOOP strain of at least 15 on six days each week."),
+    "strain": ("Strain 14+, 6 days a week", "Reach a daily WHOOP strain of at least 14 on six days each week."),
     "supplements": ("Never miss supplements", "Complete every planned daily supplement intake."),
     "weekly_recovery": ("Weekly recovery performance 80+", "Maintain an average WHOOP recovery score of 80% or higher each completed week."),
     "weekly_sleep": ("Weekly sleep performance 80+", "Maintain an average WHOOP sleep performance of 80% or higher each completed week."),
@@ -1222,7 +1222,7 @@ def record_whoop_weekly_performance(week_start, week_end):
     with db() as con:
         weekly = con.execute(
             """SELECT
-                 SUM(CASE WHEN strain >= 15 THEN 1 ELSE 0 END) AS strain_days,
+                 SUM(CASE WHEN strain >= 14 THEN 1 ELSE 0 END) AS strain_days,
                  COUNT(strain) AS strain_records,
                  AVG(sleep_performance) AS sleep,
                  COUNT(sleep_performance) AS sleep_records,
@@ -1233,7 +1233,7 @@ def record_whoop_weekly_performance(week_start, week_end):
         ).fetchone()
     label = f"{week_start.isoformat()} to {week_end.isoformat()}"
     definitions = (
-        ("strain", weekly["strain_days"] if weekly["strain_records"] else None, weekly["strain_records"], "days with strain 15+"),
+        ("strain", weekly["strain_days"] if weekly["strain_records"] else None, weekly["strain_records"], "days with strain 14+"),
         ("weekly_sleep", weekly["sleep"], weekly["sleep_records"], "average sleep performance"),
         ("weekly_recovery", weekly["recovery"], weekly["recovery_records"], "average recovery"),
     )
