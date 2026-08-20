@@ -423,6 +423,7 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 CREATE TABLE IF NOT EXISTS journal_entries (id TEXT PRIMARY KEY, goal_id TEXT NOT NULL REFERENCES goals(id) ON DELETE CASCADE, entry_date TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS supplement_checks (sample_date TEXT PRIMARY KEY, morning_taken INTEGER NOT NULL DEFAULT 0, evening_taken INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS scheduled_jobs (job_name TEXT NOT NULL, run_date TEXT NOT NULL, completed_at TEXT NOT NULL, PRIMARY KEY (job_name, run_date));
+CREATE TABLE IF NOT EXISTS quick_records (request_id TEXT PRIMARY KEY, kind TEXT NOT NULL, result_json TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_occurred_at ON activity_logs(occurred_at DESC);
 """
 
@@ -828,7 +829,7 @@ def refresh_supplement_performance(sample_day):
     return percentage
 
 
-def quick_record(kind):
+def _quick_record(kind):
     today = date.today()
     if kind == "medium":
         week_start = today - timedelta(days=today.weekday())
@@ -866,6 +867,29 @@ def quick_record(kind):
         sample_id = insert_sample(goal_id, today.isoformat(), value, f"Android widget: {event_name} ({int(value)} this period)", "android_widget")
         return {"goal": goal_id, "value": value, "sampleId": sample_id, "periodStart": period_start.isoformat()}
     raise ValueError("Unknown quick record type")
+
+
+QUICK_RECORD_LOCK = threading.Lock()
+
+
+def quick_record(kind, request_id=None):
+    request_id = str(request_id or "").strip()
+    if not request_id:
+        return _quick_record(kind)
+    if len(request_id) > 128:
+        raise ValueError("Invalid quick record request ID")
+    with QUICK_RECORD_LOCK:
+        with db() as con:
+            existing = con.execute("SELECT result_json FROM quick_records WHERE request_id = ?", (request_id,)).fetchone()
+        if existing:
+            return json.loads(existing["result_json"])
+        result = _quick_record(kind)
+        with db() as con:
+            con.execute(
+                "INSERT INTO quick_records (request_id, kind, result_json, created_at) VALUES (?, ?, ?, ?)",
+                (request_id, kind, json.dumps(result), now_iso()),
+            )
+        return result
 
 
 def quick_record_status(kind, check_date=None):
@@ -1496,7 +1520,7 @@ class Handler(BaseHTTPRequestHandler):
                 entry = add_journal(body.get("goalId"), body.get("body")); log_event("success", "Tracker", "Journal entry added", {"goalId": entry["goal_id"]})
                 return self.send_json({"ok": True, "goals": list_goals()}, 201)
             if path == "/api/quick-record":
-                result = quick_record(str(body.get("kind") or ""))
+                result = quick_record(str(body.get("kind") or ""), body.get("requestId"))
                 log_event("success", "Android widget", "Quick record saved", result)
                 return self.send_json({"ok": True, **result, "goals": list_goals()}, 201)
             if path == "/api/samples/reset":
